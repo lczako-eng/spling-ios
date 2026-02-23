@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Spling — Accessibility-First NFC + QR Ordering Infrastructure</title>
+
+<link rel="canonical" href="https://spling.org/" />
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet=-1, max-video-preview=-1" />
+<meta name="description" content="Spling is a veteran-founded, mission-driven, accessibility-first ordering infrastructure that replaces verbal drive-through ordering with structured, confirmed, QR/NFC-initiated tap-to-transmit transactions." />
+
+<meta property="og:title" content="Spling — Accessibility-First NFC + QR Ordering Infrastructure" />
+<meta property="og:description" content="Veteran-founded ordering infrastructure that replaces verbal drive-through ordering with structured, confirmed QR/NFC tap-to-transmit transactions." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://spling.org/" />
+<meta name="twitter:card" content="summary_large_image" />
+
+<link rel="icon" type="image/png" href="assets/spling-mark.png" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Outfit:wght@300;400;500;600&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+
+<style>
+/* ─── RESET ───────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+:root{
+  --ink:#09090F;
+  --off:#F5F3EE;
+  --cream:#EDE9E0;
+
+  /* Brand (derived from your logo gradient family) */
+  --blue:#0641A9;
+  --purple:#5E3DCC;
+  --magenta:#B639ED;
+
+  --muted: rgba(9,9,15,.62);
+  --border: rgba(9,9,15,.10);
+  --r: 18px;
+}
+body{
+  font-family: 'Outfit', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  background: var(--off);
+  color: var(--ink);
+  overflow-x: hidden;
+}
+a{ color: var(--purple); text-decoration: none; }
+a:hover{ opacity: .9; }
+a:focus-visible, button:focus-visible{
+  outline: 2px solid var(--purple);
+  outline-offset: 3px;
+  border-radius: 10px;
+}
+.skip-link{
+  position:absolute; left:-999px; top:12px;
+  background:#fff; color:var(--ink);
+  border:1px solid var(--border);
+  padding:10px 14px;
+  border-radius:10px;
+  z-index:9999;
+}
+.skip-link:focus{ left:12px; }
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{ animation:none !important; transition:none !important; scroll-behavior:auto !important; }
+}
+
+/* ─── LAYOUT ─────────────────────────────────────── */
+.container{ max-width: 1200px; margin: 0 auto; padding: 0 60px; }
+@media (max-width: 900px){ .container{ padding: 0 24px; } }
+
+.section{ padding: 120px 0; }
+.section-tight{ padding: 84px 0; }
+.dark{ background: var(--ink); color: #fff; }
+.dark .muted{ color: rgba(255,255,255,.55); }
+.muted{ color: var(--muted); }
+
+.kicker{
+  font-family: 'Courier Prime', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 11px;
+  letter-spacing: 2.6px;
+  text-transform: uppercase;
+  color: var(--purple);
+  display:flex; align-items:center; gap:10px;
+  margin-bottom: 18px;
+}
+.kicker::after{ content:""; height:1px; width:34px; background: var(--purple); opacity:.9; }
+
+.h2{
+  font-family: 'Playfair Display', serif;
+  font-weight: 900;
+  font-size: clamp(34px, 4.2vw, 58px);
+  line-height: 1.05;
+  letter-spacing: -1.2px;
+  margin-bottom: 22px;
+}
+.h2 em{
+  font-style: italic;
+  background: linear-gradient(135deg, var(--blue), var(--magenta));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.p{
+  font-size: 17px;
+  line-height: 1.85;
+  max-width: 760px;
+  margin-bottom: 16px;
+}
+.grid{
+  display:grid;
+  gap: 18px;
+}
+.cards-3{ grid-template-columns: repeat(3, 1fr); }
+.cards-4{ grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 980px){ .cards-4{ grid-template-columns: repeat(2, 1fr);} .cards-3{ grid-template-columns: 1fr; } }
+@media (max-width: 640px){ .cards-4{ grid-template-columns: 1fr; } }
+
+.card{
+  border-radius: 22px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,.68);
+  backdrop-filter: blur(10px);
+  padding: 28px;
+  box-shadow: 0 18px 44px rgba(0,0,0,.06);
+}
+.dark .card{
+  background: rgba(255,255,255,.05);
+  border-color: rgba(255,255,255,.08);
+  box-shadow: none;
+}
+.card h3{
+  font-family: 'Playfair Display', serif;
+  font-weight: 800;
+  font-size: 20px;
+  letter-spacing: -.3px;
+  margin-bottom: 10px;
+}
+.card p{ font-size: 13px; line-height: 1.75; color: var(--muted); }
+.dark .card p{ color: rgba(255,255,255,.55); }
+
+/* ─── NAV ───────────────────────────────────────── */
+nav{
+  position: fixed; top: 0; left: 0; right: 0;
+  z-index: 999;
+  padding: 18px 0;
+  transition: background .25s ease, border-color .25s ease;
+}
+.nav-inner{
+  display:flex; align-items:center; justify-content:space-between;
+  gap: 18px;
+}
+.brand{
+  display:flex; align-items:center; gap: 12px;
+}
+.brand img{ display:block; width:auto; }
+
+.brand .badge-icon{
+  height: 36px;
+  filter: drop-shadow(0 10px 18px rgba(0,0,0,.14));
+}
+.brand .wordmark{
+  height: 22px;
+  opacity: .98;
+}
+@media (max-width: 520px){
+  .brand .wordmark{ display:none; }
+}
+
+.nav-links{ display:flex; align-items:center; gap: 26px; }
+.nav-links a{
+  font-size: 13px;
+  color: rgba(9,9,15,.62);
+  font-weight: 500;
+}
+.nav-links a:hover{ color: rgba(9,9,15,.88); }
+.nav-cta{
+  background: var(--ink);
+  color: #fff !important;
+  padding: 10px 18px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+}
+.nav-cta:hover{ background: var(--purple); }
+@media (max-width: 780px){
+  .nav-links a:not(.nav-cta){ display:none; }
+}
+
+/* ─── HERO ─────────────────────────────────────── */
+.hero{
+  padding: 140px 0 84px;
+  min-height: 92vh;
+  display:grid;
+  grid-template-columns: 1.1fr .9fr;
+  gap: 60px;
+  align-items:center;
+}
+@media (max-width: 980px){
+  .hero{ grid-template-columns: 1fr; min-height: auto; padding-top: 120px; }
+}
+.badge{
+  display:inline-flex; align-items:center; gap: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,.7);
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  color: rgba(9,9,15,.72);
+  margin-bottom: 28px;
+}
+.badge .dot{
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--purple);
+  box-shadow: 0 0 0 4px rgba(94,61,204,.12);
+}
+.h1{
+  font-family: 'Playfair Display', serif;
+  font-weight: 900;
+  font-size: clamp(46px, 5.6vw, 78px);
+  line-height: 1.0;
+  letter-spacing: -2px;
+  margin-bottom: 22px;
+}
+.h1 em{
+  font-style: italic;
+  background: linear-gradient(135deg, var(--blue), var(--magenta));
+  -webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;
+  background-clip:text;
+}
+.hero-actions{ display:flex; flex-wrap:wrap; gap: 12px; margin-top: 26px; }
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; gap: 10px;
+  padding: 14px 22px;
+  border-radius: 999px;
+  font-weight: 650;
+  font-size: 13px;
+  border: 1px solid transparent;
+}
+.btn-primary{ background: var(--ink); color: #fff; }
+.btn-primary:hover{ background: var(--purple); }
+.btn-ghost{ background: transparent; border-color: rgba(9,9,15,.16); color: rgba(9,9,15,.72); }
+.btn-ghost:hover{ border-color: rgba(9,9,15,.26); color: rgba(9,9,15,.9); }
+
+.hero-right{
+  display:flex; align-items:center; justify-content:center;
+}
+.hero-right .mark{
+  width: min(360px, 90%);
+  height:auto;
+  filter: drop-shadow(0 40px 80px rgba(0,0,0,.18));
+}
+
+/* ─── STRIP ─────────────────────────────────────── */
+.strip{
+  background: var(--ink);
+  border-top: 1px solid rgba(255,255,255,.08);
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  overflow:hidden;
+  padding: 16px 0;
+}
+.track{
+  display:flex; gap: 50px;
+  white-space: nowrap;
+  animation: slide 18s linear infinite;
+}
+.item{
+  font-family: 'Courier Prime', monospace;
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.38);
+  display:flex; align-items:center; gap: 14px;
+}
+.item::before{ content:"◆"; color: var(--purple); font-size: 10px; opacity:.95; }
+@keyframes slide{ from{ transform: translateX(0);} to{ transform: translateX(-50%);} }
+
+/* ─── STEP LIST ─────────────────────────────────── */
+.steps{ display:flex; flex-direction:column; gap: 2px; margin-top: 34px; }
+.step{
+  display:flex; gap: 16px;
+  padding: 18px 0;
+  border-bottom: 1px solid rgba(9,9,15,.07);
+}
+.step .n{
+  font-family:'Courier Prime', monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--purple);
+  width: 34px;
+  flex: 0 0 34px;
+}
+.step h4{ font-size: 16px; font-weight: 650; margin-bottom: 4px; }
+.step p{ font-size: 13px; color: var(--muted); line-height: 1.6; max-width: 760px; }
+
+/* ─── AI SCAN DEMO (visual-only, no claims) ─────── */
+.ai-wrap{
+  display:grid;
+  grid-template-columns: 1.05fr .95fr;
+  gap: 22px;
+  align-items: start;
+  margin-top: 44px;
+}
+@media (max-width: 980px){ .ai-wrap{ grid-template-columns: 1fr; } }
+
+.ai-card{
+  border-radius: 26px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.06);
+  overflow:hidden;
+  position: relative;
+}
+.ai-top{
+  display:flex; align-items:center; justify-content:space-between;
+  padding: 18px 18px 12px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.ai-badge{
+  display:inline-flex; align-items:center; gap: 10px;
+  font-family:'Courier Prime', monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.70);
+}
+.ai-badge .spark{
+  width: 8px; height: 8px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--blue), var(--magenta));
+  box-shadow: 0 0 0 4px rgba(94,61,204,.18);
+}
+.ai-status{
+  font-size: 11px;
+  color: rgba(255,255,255,.55);
+}
+.ai-body{ padding: 18px; }
+.ai-row{
+  display:flex; align-items:center; justify-content:space-between;
+  padding: 12px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.09);
+  background: rgba(255,255,255,.05);
+  margin-bottom: 10px;
+}
+.ai-row .name{ font-size: 13px; color: rgba(255,255,255,.88); font-weight: 600; }
+.ai-row .right{ display:flex; align-items:center; gap: 10px; }
+.tag{
+  font-family:'Courier Prime', monospace;
+  font-size: 10px;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.14);
+  color: rgba(255,255,255,.66);
+}
+.tag.gf{ border-color: rgba(0,229,160,.35); color: rgba(0,229,160,.85); }
+.tag.vegan{ border-color: rgba(139,92,246,.35); color: rgba(139,92,246,.95); }
+.tag.spicy{ border-color: rgba(182,57,237,.35); color: rgba(182,57,237,.95); }
+.price{ font-family:'Courier Prime', monospace; color: rgba(255,255,255,.72); font-size: 12px; }
+
+.progress{
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.10);
+  overflow:hidden;
+  border: 1px solid rgba(255,255,255,.08);
+  margin-top: 12px;
+}
+.bar{
+  height: 100%;
+  width: 62%;
+  background: linear-gradient(135deg, var(--blue), var(--magenta));
+  animation: sweep 2.6s ease-in-out infinite;
+}
+@keyframes sweep{
+  0%{ width: 18%; opacity:.55; }
+  50%{ width: 78%; opacity:1; }
+  100%{ width: 18%; opacity:.55; }
+}
+.floaters{
+  display:flex; flex-direction:column; gap: 10px;
+}
+.fcard{
+  border-radius: 18px;
+  padding: 16px 16px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.06);
+}
+.fcard .t{
+  font-family:'Courier Prime', monospace;
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.50);
+  margin-bottom: 8px;
+}
+.fcard .v{
+  font-size: 14px;
+  color: rgba(255,255,255,.85);
+  font-weight: 650;
+}
+
+/* ─── MISSION BLOCK (NEW) ───────────────────────── */
+.quote{
+  border-left: 3px solid var(--purple);
+  padding-left: 18px;
+  margin-top: 22px;
+}
+.quote blockquote{
+  font-family: 'Playfair Display', serif;
+  font-weight: 800;
+  font-size: clamp(18px, 2.1vw, 26px);
+  line-height: 1.35;
+  letter-spacing: -.4px;
+}
+.quote blockquote em{
+  font-style: italic;
+  background: linear-gradient(135deg, var(--blue), var(--magenta));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.quote .byline{
+  margin-top: 10px;
+  font-family:'Courier Prime', monospace;
+  font-size: 11px;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.45);
+}
+
+/* ─── FOOTER ───────────────────────────────────── */
+footer{
+  background: var(--ink);
+  border-top: 1px solid rgba(255,255,255,.08);
+  padding: 44px 0;
+}
+.footer-inner{
+  display:flex; align-items:center; justify-content:space-between; gap: 18px;
+}
+.footer-inner img{ height: 44px; width:auto; }
+.footer-text{
+  font-family:'Courier Prime', monospace;
+  font-size: 11px;
+  letter-spacing: .6px;
+  color: rgba(255,255,255,.38);
+  line-height: 1.7;
+  text-align:right;
+}
+@media (max-width: 860px){
+  .footer-inner{ flex-direction:column; }
+  .footer-text{ text-align:center; }
+}
+</style>
+</head>
+
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<!--
+  IMPORTANT: Put these two files in /assets/ so the old and new branding connects:
+    1) assets/Short_logo-removebg.png   (round badge)
+    2) assets/Slpinglogo1-removebg.png  (wordmark)
+-->
+
+<nav>
+  <div class="container nav-inner">
+    <div class="brand" aria-label="Spling">
+      <img class="badge-icon" src="assets/Short_logo-removebg.png" alt="Spling badge" />
+      <img class="wordmark" src="assets/Slpinglogo1-removebg.png" alt="Spling" />
+    </div>
+    <div class="nav-links">
+      <a href="#definition">Definition</a>
+      <a href="#problem">Problem</a>
+      <a href="#engine">Menu Engine</a>
+      <a href="#interfaces">Interfaces</a>
+      <a href="#mvp" class="nav-cta">MVP Spec</a>
+    </div>
+  </div>
+</nav>
+
+<main id="main">
+
+  <!-- HERO -->
+  <section class="container hero" id="top">
+    <div>
+      <div class="badge"><span class="dot"></span> Veteran-Founded · Mission-Driven · Error-Reduction Platform</div>
+      <h1 class="h1">Accessibility-first ordering infrastructure — <em>not</em> a food app.</h1>
+      <p class="p muted">
+        Spling is a structured, accessibility-first digital ordering layer that replaces verbal drive-through ordering with a confirmed, structured, tap-to-transmit transaction initiated by QR (primary) and NFC (optional).
+      </p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="#mvp">Read the MVP spec</a>
+        <a class="btn btn-ghost" href="#engine">Vendor menu engine</a>
+      </div>
+    </div>
+    <div class="hero-right" aria-hidden="true">
+      <!-- Updated hero mark to match the new site brand badge -->
+      <img class="mark" src="assets/Short_logo-removebg.png" alt="" />
+    </div>
+  </section>
+
+  <!-- STRIP -->
+  <div class="strip" aria-hidden="true">
+    <div class="track">
+      <div class="item">QR Initiation</div>
+      <div class="item">NFC Optional</div>
+      <div class="item">Vendor Identification</div>
+      <div class="item">AI Menu Ingestion</div>
+      <div class="item">Accessible Interfaces</div>
+      <div class="item">Visual Confirmation</div>
+      <div class="item">Payment + Transmission</div>
+      <div class="item">Error Reduction</div>
+
+      <div class="item">QR Initiation</div>
+      <div class="item">NFC Optional</div>
+      <div class="item">Vendor Identification</div>
+      <div class="item">AI Menu Ingestion</div>
+      <div class="item">Accessible Interfaces</div>
+      <div class="item">Visual Confirmation</div>
+      <div class="item">Payment + Transmission</div>
+      <div class="item">Error Reduction</div>
+    </div>
+  </div>
+
+  <!-- DEFINITION -->
+  <section class="section" id="definition">
+    <div class="container">
+      <div class="kicker">Executive Definition</div>
+      <h2 class="h2">Spling is ordering infrastructure.</h2>
+      <p class="p muted">
+        It is not just a food app. It is not just accessibility software. It is not just QR ordering.
+        Spling is a structured, accessibility-first, digital ordering layer that replaces verbal drive-through ordering with a confirmed, structured, tap-to-transmit transaction.
+      </p>
+      <div class="grid cards-2" style="grid-template-columns:repeat(2,1fr); gap:18px; margin-top:26px;">
+        <div class="card">
+          <h3>Human Objective</h3>
+          <p>Enable independent food ordering for individuals facing speech, hearing, cognitive, literacy, or language barriers.</p>
+        </div>
+        <div class="card">
+          <h3>Operational Objective</h3>
+          <p>Reduce drive-through ordering errors, increase accuracy, reduce labor friction, and improve transaction clarity.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PROBLEM -->
+  <section class="section dark" id="problem">
+    <div class="container">
+      <div class="kicker" style="color:rgba(255,255,255,.6)"><span style="display:none"></span>The Problem</div>
+      <h2 class="h2">Why verbal ordering fails <em>by design</em>.</h2>
+      <p class="p muted" style="color:rgba(255,255,255,.62)">
+        Drive-through systems rely on speaker-based communication, verbal repetition, human interpretation, environmental noise, and accent/language clarity.
+        This produces order errors, remakes, frustration, slower throughput, and increased labor cost.
+      </p>
+      <p class="p muted" style="color:rgba(255,255,255,.62)">
+        These systems are not designed for people with speech impairments (e.g., dysarthria), deaf or hard-of-hearing individuals, cognitive load/literacy challenges, new immigrants with language barriers, and veterans with service-related communication disabilities.
+        Spling exists to make ordering independent, dignified, and humane.
+      </p>
+    </div>
+  </section>
+
+  <!-- MISSION (NEW - imported conceptually from your new site, styled to match this site) -->
+  <section class="section dark" id="mission">
+    <div class="container">
+      <div class="kicker" style="color:rgba(255,255,255,.6)">Mission</div>
+      <h2 class="h2">A system that does not require a voice.</h2>
+      <p class="p muted" style="color:rgba(255,255,255,.62)">
+        Systems fail when they rely purely on verbal interpretation. Spling replaces speaker-based ordering with confirmed, structured transactions
+        — so independence and accuracy are the default.
+      </p>
+
+      <div class="quote">
+        <blockquote>
+          “Systems fail when they rely purely on verbal interpretation. I saw it in the field. <em>Spling exists to fix both.</em>”
+        </blockquote>
+        <div class="byline">Founder · Decorated Military Veteran</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- WHO WE SERVE (NEW) -->
+  <section class="section" id="serve">
+    <div class="container">
+      <div class="kicker">Who We Serve</div>
+      <h2 class="h2">Every person the current system was not designed for.</h2>
+      <p class="p muted">
+        Spling was built for the populations verbal ordering excludes — and it improves clarity and accuracy for everyone in every lane.
+      </p>
+
+      <div class="grid cards-4" style="margin-top:18px;">
+        <div class="card"><h3>Deaf & Hard of Hearing</h3><p>Full ordering independence with no verbal interaction required.</p></div>
+        <div class="card"><h3>Speech Impairments</h3><p>Dysarthria, stuttering, and atypical speech no longer block ordering.</p></div>
+        <div class="card"><h3>Cognitive & Literacy</h3><p>Reduced cognitive load through clear states and visual selection.</p></div>
+        <div class="card"><h3>Language Barriers</h3><p>Menus accessible in the user’s preferred language.</p></div>
+        <div class="card"><h3>Caregiver-Supported</h3><p>Structured help without removing user agency at confirmation/transmit.</p></div>
+        <div class="card"><h3>Veterans</h3><p>Service-related communication disabilities addressed with dignity.</p></div>
+        <div class="card"><h3>General Population</h3><p>Fewer remakes, fewer repeats, more accurate orders for everyone.</p></div>
+        <div class="card"><h3>Operators</h3><p>Less labor friction and clearer order payloads into the backend.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CORE OVERVIEW -->
+  <section class="section" id="overview">
+    <div class="container">
+      <div class="kicker">Core System Overview</div>
+      <h2 class="h2">One technical flow.</h2>
+      <p class="p muted">
+        Spling introduces a structured digital ordering layer between the customer and the vendor backend.
+      </p>
+
+      <div class="grid cards-3" style="margin-top:22px;">
+        <div class="card">
+          <h3>Drive-through initiation</h3>
+          <p>User drives up → scans QR code (or taps NFC) → vendor is identified → menu is loaded into Spling.</p>
+        </div>
+        <div class="card">
+          <h3>Accessible order build</h3>
+          <p>User builds order via accessible interface → visually confirms order → no verbal confirmation required.</p>
+        </div>
+        <div class="card">
+          <h3>Tap-to-transmit</h3>
+          <p>User taps to transmit order + process payment → order is sent to vendor backend in structured format.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MENU ENGINE -->
+  <section class="section dark" id="engine">
+    <div class="container">
+      <div class="kicker" style="color:rgba(255,255,255,.6)">Vendor Menu Acquisition Engine</div>
+      <h2 class="h2">Multiple ingestion pathways. <em>One normalized menu object.</em></h2>
+      <p class="p muted" style="color:rgba(255,255,255,.62)">
+        Spling supports multiple menu ingestion pathways to ensure reliability: vendor API/POS feed (preferred), website extraction, maintained local menu (fallback), and manual vendor upload.
+      </p>
+
+      <div class="grid cards-4" style="margin-top:18px;">
+        <div class="card">
+          <h3>QR code initiation</h3>
+          <p>Drive-through QR contains vendor ID/endpoint. App loads vendor configuration.</p>
+        </div>
+        <div class="card">
+          <h3>NFC initiation (optional)</h3>
+          <p>NFC tag at intercom auto-detects vendor and launches the correct menu.</p>
+        </div>
+        <div class="card">
+          <h3>AI normalization</h3>
+          <p>Parses items and pricing, applies translation, and standardizes format for the ordering engine.</p>
+        </div>
+        <div class="card">
+          <h3>Dietary + allergens</h3>
+          <p>Tags dietary attributes (GF, Vegan, Spicy) and flags allergens when data is available.</p>
+        </div>
+      </div>
+
+      <!-- AI Vendor Menu Reading -->
+      <div class="ai-wrap" id="ai-reading">
+        <div class="ai-card">
+          <div class="ai-top">
+            <div class="ai-badge"><span class="spark"></span> AI Engine</div>
+            <div class="ai-status">Menu reading (visual demo)</div>
+          </div>
+          <div class="ai-body">
+            <div class="ai-row">
+              <div class="name">Classic Burger</div>
+              <div class="right">
+                <span class="tag spicy">Spicy</span>
+                <span class="price">$6.49</span>
+              </div>
+            </div>
+            <div class="ai-row">
+              <div class="name">Garden Bowl</div>
+              <div class="right">
+                <span class="tag vegan">Vegan</span>
+                <span class="price">$7.25</span>
+              </div>
+            </div>
+            <div class="ai-row">
+              <div class="name">Grilled Chicken</div>
+              <div class="right">
+                <span class="tag gf">GF</span>
+                <span class="price">$8.10</span>
+              </div>
+            </div>
+            <div class="progress" aria-hidden="true"><div class="bar"></div></div>
+          </div>
+        </div>
+
+        <div class="floaters">
+          <div class="fcard">
+            <div class="t">Status</div>
+            <div class="v">Allergens filtered</div>
+          </div>
+          <div class="fcard">
+            <div class="t">Status</div>
+            <div class="v">Translated to French</div>
+          </div>
+          <div class="fcard">
+            <div class="t">Status</div>
+            <div class="v">12 items available</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- INTERFACES -->
+  <section class="section" id="interfaces">
+    <div class="container">
+      <div class="kicker">User Ordering Interfaces</div>
+      <h2 class="h2">Three pathways. <em>One structured order object.</em></h2>
+      <p class="p muted">
+        All pathways feed into the same structured order object and require visual confirmation prior to transmission.
+      </p>
+
+      <div class="grid cards-3" style="margin-top:18px;">
+        <div class="card">
+          <h3>Pathway 1: Adaptive Speech (optional)</h3>
+          <p>User-specific speech model (opt-in adaptive learning) with a required confirmation layer. Model improves through confirmed transactions.</p>
+        </div>
+        <div class="card">
+          <h3>Pathway 2: Visual tile / tap</h3>
+          <p>Large photo tiles, adjustable contrast and sizing, haptic confirmation, and clear visual confirmation states for cognitive clarity.</p>
+        </div>
+        <div class="card">
+          <h3>Pathway 3: Caregiver pre-configuration</h3>
+          <p>Caregiver can pre-set favorites/restrictions/recurring items. User still completes vendor identification, final confirmation, and NFC transmit.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CONFIRMATION -->
+  <section class="section dark" id="confirmation">
+    <div class="container">
+      <div class="kicker" style="color:rgba(255,255,255,.6)">Confirmation & Error Reduction</div>
+      <h2 class="h2">Structured confirmation is the differentiator.</h2>
+      <p class="p muted" style="color:rgba(255,255,255,.62)">
+        Before transmission, the order is displayed in a large confirmation state with explicit review, clear pricing, and visible dietary tags.
+        No ambiguous audio repetition. The system prioritizes structured clarity over speed.
+      </p>
+    </div>
+  </section>
+
+  <!-- FLOW -->
+  <section class="section" id="flow">
+    <div class="container">
+      <div class="kicker">High-Level Flow</div>
+      <h2 class="h2">Six steps. <em>Zero words.</em></h2>
+
+      <div class="steps">
+        <div class="step">
+          <div class="n">01</div>
+          <div>
+            <h4>Initiate</h4>
+            <p>Drive-through user scans QR code (primary) or taps NFC (optional).</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="n">02</div>
+          <div>
+            <h4>NFC/QR Tap → AI Reads Menu</h4>
+            <p>Vendor is identified. Menu is acquired and normalized into a structured, vendor-specific menu object.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="n">03</div>
+          <div>
+            <h4>Build order (accessible)</h4>
+            <p>User builds the order via visual tiles/tap, optional adaptive speech, or caregiver pre-configuration.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="n">04</div>
+          <div>
+            <h4>Visual confirmation</h4>
+            <p>Large confirmation state with explicit review, pricing visibility, and dietary/allergen tags (when available).</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="n">05</div>
+          <div>
+            <h4>Payment</h4>
+            <p>Payment is processed via an integrated payment processor.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="n">06</div>
+          <div>
+            <h4>Transmit to vendor backend</h4>
+            <p>Order is transmitted in structured format via POS API integration, structured webhook, or a vendor dashboard fallback.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PAYMENT & TRANSMISSION -->
+  <section class="section dark" id="transmission">
+    <div class="container">
+      <div class="kicker" style="color:rgba(255,255,255,.6)">Payment & Transmission</div>
+      <h2 class="h2">Structured payload to reduce interpretation errors.</h2>
+      <p class="p muted" style="color:rgba(255,255,255,.62)">
+        Transmission payload includes item IDs, modifiers, allergen flags (when available), timestamp, and transaction ID.
+        This reduces interpretation errors at the kitchen level.
+      </p>
+    </div>
+  </section>
+
+  <!-- ACCESSIBILITY -->
+  <section class="section" id="accessibility">
+    <div class="kicker container">Accessibility Design Principles</div>
+    <div class="container">
+      <h2 class="h2">Accessibility is architectural.</h2>
+      <div class="grid cards-4" style="margin-top:18px;">
+        <div class="card"><h3>High contrast</h3><p>Built-in contrast mode for clarity.</p></div>
+        <div class="card"><h3>Typography scaling</h3><p>Large sizing options and readable type hierarchy.</p></div>
+        <div class="card"><h3>Haptic confirmations</h3><p>Clear tactile confirmation states.</p></div>
+        <div class="card"><h3>Minimal cognitive steps</h3><p>Reduced steps and clear states (no ambiguous UI).</p></div>
+      </div>
+      <p class="p muted" style="margin-top:18px;">
+        Optional voice input and translation support are part of the system design.
+      </p>
+    </div>
+  </section>
+
+  <!-- BUSINESS MODEL -->
+  <section class="section" id="business">
+    <div class="container">
+      <div class="kicker">Business Model</div>
+      <h2 class="h2">Revenue streams</h2>
+      <div class="grid cards-4" style="margin-top:18px;">
+        <div class="card"><h3>Enterprise licensing</h3><p>Enterprise franchise licensing.</p></div>
+        <div class="card"><h3>Healthcare deployment</h3><p>Healthcare / rehabilitation deployment.</p></div>
+        <div class="card"><h3>Consumer premium</h3><p>Consumer subscription (premium features).</p></div>
+        <div class="card"><h3>Vendor analytics</h3><p>Vendor analytics dashboard; transaction fees (optional model).</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HARD TO COPY -->
+  <section class="section dark" id="moat">
+    <div class="container">
+      <div class="kicker" style="color:rgba(255,255,255,.6)">Why It’s Hard To Copy</div>
+      <h2 class="h2">Defensible architecture: integrated layers.</h2>
+      <p class="p muted" style="color:rgba(255,255,255,.62)">
+        It is not just QR ordering, not just NFC payment, and not just accessibility UI. It is the integrated system:
+        vendor identification layer, AI menu ingestion layer, accessibility UI layer, confirmation protocol, structured backend transmission, and feedback loop.
+      </p>
+    </div>
+  </section>
+
+  <!-- MVP -->
+  <section class="section" id="mvp">
+    <div class="container">
+      <div class="kicker">MVP Requirements for Developer</div>
+      <h2 class="h2">First functional MVP</h2>
+      <div class="grid cards-3" style="margin-top:18px;">
+        <div class="card">
+          <h3>Core</h3>
+          <p>QR scan → vendor ID routing; static demo menu ingestion; structured order object; confirmation screen.</p>
+        </div>
+        <div class="card">
+          <h3>Payments + backend</h3>
+          <p>Payment integration (e.g., Stripe); backend API endpoint to simulate vendor receive.</p>
+        </div>
+        <div class="card">
+          <h3>Accessibility basics</h3>
+          <p>Accessibility scaling (font size + contrast toggle). AI scraping can be Phase 2; POS integration Phase 3.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- END STATE -->
+  <section class="section dark" id="vision">
+    <div class="container">
+      <div class="kicker" style="color:rgba(255,255,255,.6)">End State Vision</div>
+      <h2 class="h2">A standardized “Accessible Drive-Through Protocol.”</h2>
+      <p class="p muted" style="color:rgba(255,255,255,.62)">
+        Spling becomes a silent ordering protocol for drive-through, an accessibility independence tool, a vendor analytics layer, and a structured transaction standard.
+      </p>
+      <div class="hero-actions" style="margin-top:18px;">
+        <a class="btn btn-primary" href="mailto:info@spling.org">Contact: info@spling.org</a>
+        <a class="btn btn-ghost" href="#top" style="border-color: rgba(255,255,255,.18); color: rgba(255,255,255,.75);">Back to top</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="container footer-inner">
+    <!-- Updated footer badge to match the new site brand -->
+    <img src="assets/Short_logo-removebg.png" alt="Spling badge" />
+    <div class="footer-text">
+      SPLING — Accessibility-First NFC + QR Ordering Infrastructure<br/>
+      Veteran-Founded · Mission-Driven · Error-Reduction Platform
+    </div>
+  </div>
+</footer>
+
+<script>
+  // NAV SCROLL EFFECT (cosmetic only)
+  const nav = document.querySelector('nav');
+  const onScroll = () => {
+    if (window.scrollY > 20) {
+      nav.style.background = 'rgba(245,243,238,.92)';
+      nav.style.backdropFilter = 'blur(16px)';
+      nav.style.borderBottom = '1px solid rgba(9,9,15,.08)';
+    } else {
+      nav.style.background = '';
+      nav.style.backdropFilter = '';
+      nav.style.borderBottom = '';
+    }
+  };
+  window.addEventListener('scroll', onScroll);
+  onScroll();
+</script>
+
+</body>
+</html>
