@@ -1,0 +1,4632 @@
+//
+// ReviewService.swift
+// Spling
+//
+// Handles posting new reviews, fetching vendor reviews,
+// and marking reviews as helpful — all against the Spling backend.
+//
+import Foundation
+
+enum ReviewError: LocalizedError {
+    case invalidInput(String)
+    case alreadyReviewed
+    case networkError(String)
+    case notFound
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidInput(let msg): return msg
+        case .alreadyReviewed:       return "You've already reviewed this order."
+        case .networkError(let m):   return "Network error: \(m)"
+        case .notFound:              return "Review not found."
+        }
+    }
+}
+
+actor ReviewService {
+    static let shared = ReviewService()
+    private init() {}
+
+    private let decoder: JSONDecoder = {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601
+        return d
+    }()
+
+    private let encoder: JSONEncoder = {
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .iso8601
+        return e
+    }()
+
+    // MARK: - Submit Review
+
+    /// Posts a new review for a vendor after an order is completed.
+    /// The review is tied to the order ID, so each order can only be reviewed once.
+    func submit(_ review: Review) async throws -> Review {
+        // Validate locally before sending
+        guard !review.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ReviewError.invalidInput("Please add a title to your review.")
+        }
+        guard !review.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ReviewError.invalidInput("Please add some details to your review.")
+        }
+        guard review.body.count <= AppConfig.Reviews.maxBodyLength else {
+            throw ReviewError.invalidInput("Review is too long (max \(AppConfig.Reviews.maxBodyLength) characters).")
+        }
+        guard (AppConfig.Reviews.minRating...AppConfig.Reviews.maxRating).contains(review.rating) else {
+            throw ReviewError.invalidInput("Rating must be between 1 and 5.")
+        }
+
+        guard let url = URL(string: "\(AppConfig.API.baseURL)\(AppConfig.API.reviewsEndpoint)") else {
+            throw ReviewError.networkError("Invalid reviews endpoint URL.")
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try encoder.encode(review)
+        req.timeoutInterval = 15
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse else {
+            throw ReviewError.networkError("No HTTP response")
+        }
+        switch http.statusCode {
+        case 200...299:
+            return try decoder.decode(Review.self, from: data)
+        case 409:
+            throw ReviewError.alreadyReviewed
+        default:
+            throw ReviewError.networkError("HTTP \(http.statusCode)")
+        }
+    }
+
+    // MARK: - Fetch Reviews for a Vendor
+
+    /// Fetches paginated reviews for a given vendor, newest first.
+    func fetchReviews(vendorID: String, page: Int = 0) async throws -> [Review] {
+        guard let url = URL(
+            string: "\(AppConfig.API.baseURL)\(AppConfig.API.reviewsEndpoint)/vendor/\(vendorID)?page=\(page)&limit=\(AppConfig.Reviews.pageSize)"
+        ) else {
+            throw ReviewError.networkError("Invalid URL")
+        }
+        let (data, _) = try await URLSession.shared.data(from: url)
+        return try decoder.decode([Review].self, from: data)
+    }
+
+    // MARK: - Fetch Summary
+
+    /// Returns aggregated star ratings and average for the given vendor.
+    func fetchSummary(vendorID: String) async throws -> VendorReviewSummary {
+        guard let url = URL(
+            string: "\(AppConfig.API.baseURL)\(AppConfig.API.reviewsEndpoint)/vendor/\(vendorID)/summary"
+        ) else {
+            throw ReviewError.networkError("Invalid URL")
+        }
+        let (data, _) = try await URLSession.shared.data(from: url)
+        return try decoder.decode(VendorReviewSummary.self, from: data)
+    }
+
+    // MARK: - Mark Helpful
+
+    func markHelpful(reviewID: UUID) async throws {
+        guard let url = URL(
+            string: "\(AppConfig.API.baseURL)\(AppConfig.API.reviewsEndpoint)/\(reviewID.uuidString)/helpful"
+        ) else {
+            throw ReviewError.networkError("Invalid URL")
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        let (_, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw ReviewError.networkError("Could not mark review as helpful.")
+        }
+    }
+}
+//
+// NFCManager.swift
+// Spling
+//
+// Reads NDEF-formatted NFC tags at drive-through terminals.
+// Requires "Near Field Communication Tag Reading" capability in Xcode
+// and the NFCReaderUsageDescription key in Info.plist.
+//
+import CoreNFC
+import Combine
+
+enum NFCError: LocalizedError {
+    case notSupported
+    case sessionInvalidated(String)
+    case noNDEFFound
+    case invalidPayload
+    case tagDecodeError(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .notSupported:
+            return "NFC is not supported on this device."
+        case .sessionInvalidated(let msg):
+            return msg.isEmpty ? "NFC session ended." : msg
+        case .noNDEFFound:
+            return "No Spling tag found. Make sure you're holding the phone near the terminal."
+        case .invalidPayload:
+            return "This NFC tag isn't a Spling terminal tag."
+        case .tagDecodeError(let msg):
+            return "Couldn't read the tag: \(msg)"
+        }
+    }
+}
+
+@MainActor
+final class NFCManager: NSObject, ObservableObject {
+
+    @Published var isScanning:       Bool             = false
+    @Published var detectedPayload:  NFCTagPayload?   = nil
+    @Published var error:            NFCError?        = nil
+
+    private var session: NFCNDEFReaderSession?
+
+    // MARK: - Public API
+
+    func startSession() {
+        guard NFCNDEFReaderSession.readingAvailable else {
+            error = .notSupported
+            return
+        }
+        reset()
+        session = NFCNDEFReaderSession(
+            delegate: self,
+            queue: .main,
+            invalidateAfterFirstRead: true
+        )
+        session?.alertMessage = AppConfig.NFC.alertMessage
+        session?.begin()
+        isScanning = true
+    }
+
+    func reset() {
+        isScanning      = false
+        detectedPayload = nil
+        error           = nil
+    }
+}
+
+// MARK: - NFCNDEFReaderSessionDelegate
+
+extension NFCManager: NFCNDEFReaderSessionDelegate {
+
+    nonisolated func readerSession(
+        _ session: NFCNDEFReaderSession,
+        didInvalidateWithError error: Error
+    ) {
+        Task { @MainActor in
+            self.isScanning = false
+            if let nfcError = error as? NFCReaderError {
+                switch nfcError.code {
+                case .readerSessionInvalidationErrorFirstNDEFTagRead,
+                     .readerSessionInvalidationErrorUserCanceled:
+                    // Normal termination — don't surface as an error
+                    break
+                default:
+                    self.error = .sessionInvalidated(nfcError.localizedDescription)
+                }
+            }
+        }
+    }
+
+    nonisolated func readerSession(
+        _ session: NFCNDEFReaderSession,
+        didDetectNDEFs messages: [NFCNDEFMessage]
+    ) {
+        Task { @MainActor in
+            self.isScanning = false
+            guard let firstRecord = messages.first?.records.first else {
+                self.error = .noNDEFFound
+                return
+            }
+
+            // Spling tags use the "T" (text) NDEF well-known type record
+            guard firstRecord.typeNameFormat == .nfcWellKnown,
+                  firstRecord.type == Data([0x54])   // "T" in ASCII
+            else {
+                self.error = .invalidPayload
+                return
+            }
+
+            do {
+                let payload = try NFCTagPayload.from(ndefPayload: firstRecord.payload)
+                self.detectedPayload = payload
+            } catch {
+                self.error = .tagDecodeError(error.localizedDescription)
+            }
+        }
+    }
+}
+//
+// KeychainManager.swift
+// Spling
+//
+// Provides a simple, synchronous Keychain wrapper for storing
+// sensitive values like the Anthropic API key. Never store API
+// keys in UserDefaults, Info.plist, or committed source code.
+//
+import Foundation
+import Security
+
+final class KeychainManager {
+    static let shared = KeychainManager()
+    private init() {}
+
+    private let service = "app.spling.keychain"
+
+    // MARK: - Save
+
+    @discardableResult
+    func save(key: String, value: String) -> Bool {
+        guard let data = value.data(using: .utf8) else { return false }
+
+        // Delete any existing item first so we can overwrite
+        delete(key: key)
+
+        let query: [String: Any] = [
+            kSecClass as String:            kSecClassGenericPassword,
+            kSecAttrService as String:      service,
+            kSecAttrAccount as String:      key,
+            kSecValueData as String:        data,
+            kSecAttrAccessible as String:   kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+
+        let status = SecItemAdd(query as CFDictionary, nil)
+        return status == errSecSuccess
+    }
+
+    // MARK: - Retrieve
+
+    func retrieve(key: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String:       kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+            kSecReturnData as String:  true,
+            kSecMatchLimit as String:  kSecMatchLimitOne
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        guard status == errSecSuccess,
+              let data = result as? Data,
+              let value = String(data: data, encoding: .utf8)
+        else { return nil }
+
+        return value
+    }
+
+    // MARK: - Delete
+
+    @discardableResult
+    func delete(key: String) -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String:       kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
+    }
+
+    // MARK: - Convenience: API key
+
+    var anthropicAPIKey: String {
+        get { retrieve(key: "anthropic_api_key") ?? "" }
+        set { save(key: "anthropic_api_key", value: newValue) }
+    }
+}
+//
+// POSService.swift
+// Spling
+//
+// Routes confirmed orders to the vendor's POS system via webhook,
+// polls for queue position, and fetches real-time queue status.
+//
+import Foundation
+
+enum POSError: LocalizedError {
+    case notConfigured
+    case rejected(String)
+    case timeout
+    case networkError(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .notConfigured:        return "POS system is not configured for this vendor."
+        case .rejected(let msg):    return "Order rejected by POS: \(msg)"
+        case .timeout:              return "POS system did not respond in time. Please check with staff."
+        case .networkError(let m):  return "Network error reaching POS: \(m)"
+        }
+    }
+}
+
+actor POSService {
+    static let shared = POSService()
+    private init() {}
+
+    private let decoder: JSONDecoder = {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601
+        return d
+    }()
+
+    // MARK: - Submit Order to POS
+
+    /// Sends the Spling order to the vendor's POS webhook and returns the acknowledgement.
+    /// If the vendor requires acknowledgement, waits up to 30 s for confirmation.
+    func submit(
+        order: Order,
+        paymentTransactionID: String,
+        posInfo: POSSystemInfo
+    ) async throws -> POSAcknowledgement {
+
+        let payload = buildPOSPayload(order: order, paymentTransactionID: paymentTransactionID)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+
+        var req = URLRequest(url: posInfo.endpointURL)
+        req.httpMethod = "POST"
+        req.setValue("application/json",  forHTTPHeaderField: "Content-Type")
+        req.setValue("Spling-iOS/1.0",    forHTTPHeaderField: "User-Agent")
+        req.httpBody      = try encoder.encode(payload)
+        req.timeoutInterval = posInfo.requiresAcknowledgement ? 30 : 10
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: req)
+            guard let http = response as? HTTPURLResponse else {
+                throw POSError.networkError("No HTTP response")
+            }
+            switch http.statusCode {
+            case 200...299:
+                return try decoder.decode(POSAcknowledgement.self, from: data)
+            case 422:
+                let msg = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String ?? "Validation error"
+                throw POSError.rejected(msg)
+            default:
+                throw POSError.networkError("HTTP \(http.statusCode)")
+            }
+        } catch let error as POSError { throw error }
+        catch let urlError as URLError where urlError.code == .timedOut {
+            throw POSError.timeout
+        }
+        catch { throw POSError.networkError(error.localizedDescription) }
+    }
+
+    // MARK: - Queue Status
+
+    /// Fetches the current queue position for a placed order.
+    func fetchQueueStatus(queueID: String) async throws -> QueueStatus {
+        guard let url = URL(string: "\(AppConfig.API.baseURL)\(AppConfig.API.queueEndpoint)/\(queueID)") else {
+            throw POSError.notConfigured
+        }
+        let (data, _) = try await URLSession.shared.data(from: url)
+        return try decoder.decode(QueueStatus.self, from: data)
+    }
+
+    // MARK: - Helpers
+
+    private func buildPOSPayload(order: Order, paymentTransactionID: String) -> POSOrderPayload {
+        let lines = order.items.map { item in
+            POSOrderLine(
+                posItemID:           item.menuItem.id,
+                name:                item.menuItem.name,
+                quantity:            item.quantity,
+                unitPriceCents:      item.menuItem.priceCents,
+                modifiers:           Array(item.selectedCustomizations.values),
+                specialInstructions: item.specialInstructions
+            )
+        }
+        return POSOrderPayload(
+            splingOrderID:            order.id,
+            terminalID:               order.terminalID ?? "unknown",
+            items:                    lines,
+            totalCents:               order.totalCents,
+            paymentTransactionID:     paymentTransactionID,
+            channel:                  order.channel,
+            placedByCaretaker:        order.placedByCaretaker,
+            customerFacingReference:  generatePickupCode(),
+            timestamp:                Date()
+        )
+    }
+
+    /// Generates a short, human-readable pickup code (e.g. "SPL-4B2F").
+    private func generatePickupCode() -> String {
+        let chars  = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        let random = (0..<4).map { _ in chars.randomElement()! }
+        return "SPL-" + String(random)
+    }
+}
+//
+// HapticManager.swift
+// Spling
+//
+import UIKit
+
+/// Centralised haptic feedback wrapper.
+/// All call sites check AccessibilitySettings.hapticFeedbackEnabled
+/// before calling into UIKit generators, so haptics respect the user's preference.
+final class HapticManager {
+    static let shared = HapticManager()
+    private init() {}
+
+    // Pre-warmed generators — avoids first-use latency
+    private let light   = UIImpactFeedbackGenerator(style: .light)
+    private let medium  = UIImpactFeedbackGenerator(style: .medium)
+    private let heavy   = UIImpactFeedbackGenerator(style: .heavy)
+    private let rigid   = UIImpactFeedbackGenerator(style: .rigid)
+    private let soft    = UIImpactFeedbackGenerator(style: .soft)
+    private let notify  = UINotificationFeedbackGenerator()
+    private let select  = UISelectionFeedbackGenerator()
+
+    // MARK: - Impact
+
+    func impact(_ style: UIImpactFeedbackGenerator.FeedbackStyle = .medium) {
+        switch style {
+        case .light:  light.impactOccurred()
+        case .medium: medium.impactOccurred()
+        case .heavy:  heavy.impactOccurred()
+        case .rigid:  rigid.impactOccurred()
+        case .soft:   soft.impactOccurred()
+        @unknown default: medium.impactOccurred()
+        }
+    }
+
+    // MARK: - Notification
+
+    func notification(_ type: UINotificationFeedbackGenerator.FeedbackType) {
+        notify.notificationOccurred(type)
+    }
+
+    // MARK: - Selection
+
+    func selection() {
+        select.selectionChanged()
+    }
+
+    // MARK: - Prepare (reduces latency on next call)
+
+    func prepare() {
+        light.prepare()
+        medium.prepare()
+        notify.prepare()
+        select.prepare()
+    }
+}
+//
+// PaymentManager.swift
+// Spling
+//
+// Handles payment processing via Stripe.
+// Add the Stripe iOS SDK via Swift Package Manager:
+//   https://github.com/stripe/stripe-ios  (StripePaymentSheet target)
+//
+// This file compiles without the Stripe SDK present by using a
+// protocol + live/mock implementations pattern. Swap to StripePaymentSheet
+// in production by implementing StripePaymentService below.
+//
+import Foundation
+import PassKit
+
+// MARK: - Payment Errors
+
+enum PaymentError: LocalizedError {
+    case notConfigured
+    case cancelled
+    case declined(String)
+    case networkError(String)
+    case unknownError(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .notConfigured:        return "Payment is not configured. Please contact support."
+        case .cancelled:            return "Payment was cancelled."
+        case .declined(let msg):    return "Payment declined: \(msg)"
+        case .networkError(let m):  return "Network error during payment: \(m)"
+        case .unknownError(let m):  return "An unexpected payment error occurred: \(m)"
+        }
+    }
+}
+
+// MARK: - Payment Manager
+
+final class PaymentManager {
+    static let shared = PaymentManager()
+    private init() {}
+
+    // MARK: - Process Payment
+
+    /// Processes payment for an order and returns a PaymentResult on success.
+    /// In production this calls your backend to create a PaymentIntent,
+    /// then presents Stripe's PaymentSheet (or Apple Pay sheet).
+    func process(order: Order, method: PaymentMethod) async throws -> PaymentResult {
+        switch method {
+        case .applePay:
+            return try await processApplePay(order: order)
+        case .creditCard, .debitCard:
+            return try await processCard(order: order, method: method)
+        case .splingWallet:
+            return try await processWallet(order: order, method: method)
+        }
+    }
+
+    // MARK: - Apple Pay
+
+    private func processApplePay(order: Order) async throws -> PaymentResult {
+        guard PKPaymentAuthorizationController.canMakePayments() else {
+            throw PaymentError.notConfigured
+        }
+
+        // Build the PKPaymentRequest
+        let request = PKPaymentRequest()
+        request.merchantIdentifier         = "merchant.app.spling"
+        request.supportedNetworks          = [.visa, .masterCard, .amex, .discover]
+        request.merchantCapabilities       = .capability3DS
+        request.countryCode                = AppConfig.Payment.countryCode
+        request.currencyCode               = AppConfig.Payment.currency.uppercased()
+        request.paymentSummaryItems        = [
+            PKPaymentSummaryItem(
+                label: order.vendorName,
+                amount: NSDecimalNumber(value: Double(order.totalCents) / 100.0)
+            )
+        ]
+
+        // Use continuation to bridge PKPaymentAuthorizationController callback
+        return try await withCheckedThrowingContinuation { continuation in
+            let controller = PKPaymentAuthorizationController(paymentRequest: request)
+            let delegate   = ApplePayDelegate(order: order, continuation: continuation)
+            controller.delegate = delegate
+            // Keep delegate alive for the duration of the sheet
+            objc_setAssociatedObject(controller, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN)
+            controller.present()
+        }
+    }
+
+    // MARK: - Card (Stripe)
+
+    private func processCard(order: Order, method: PaymentMethod) async throws -> PaymentResult {
+        // Step 1: Ask your backend for a PaymentIntent client secret
+        let clientSecret = try await createPaymentIntent(amountCents: order.totalCents, orderID: order.id)
+
+        // Step 2: In production, present StripePaymentSheet here.
+        // For now we simulate a successful charge — replace with real Stripe SDK call.
+        #if DEBUG
+        try await Task.sleep(nanoseconds: 1_500_000_000)  // Simulate network
+        return PaymentResult(
+            transactionID: "pi_debug_\(UUID().uuidString.prefix(8))",
+            amountCents:   order.totalCents,
+            method:        method.displayName,
+            timestamp:     Date(),
+            receiptURL:    nil
+        )
+        #else
+        // Production: use StripePaymentSheet
+        // let config = PaymentSheet.Configuration()
+        // let sheet  = PaymentSheet(paymentIntentClientSecret: clientSecret, configuration: config)
+        // ... present and handle result
+        throw PaymentError.notConfigured
+        #endif
+    }
+
+    // MARK: - Spling Wallet
+
+    private func processWallet(order: Order, method: PaymentMethod) async throws -> PaymentResult {
+        guard case .splingWallet(let balance) = method else {
+            throw PaymentError.notConfigured
+        }
+        guard balance >= order.totalCents else {
+            throw PaymentError.declined("Insufficient Spling Wallet balance.")
+        }
+
+        let body: [String: Any] = [
+            "orderID":    order.id.uuidString,
+            "amountCents": order.totalCents
+        ]
+        return try await postToBackend(
+            endpoint: AppConfig.API.paymentEndpoint + "/wallet",
+            body: body,
+            method: method
+        )
+    }
+
+    // MARK: - Backend Helpers
+
+    private func createPaymentIntent(amountCents: Int, orderID: UUID) async throws -> String {
+        guard let url = URL(string: "\(AppConfig.API.baseURL)\(AppConfig.API.paymentEndpoint)/intent") else {
+            throw PaymentError.notConfigured
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: [
+            "amount":    amountCents,
+            "currency":  AppConfig.Payment.currency,
+            "orderID":   orderID.uuidString
+        ])
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw PaymentError.networkError("PaymentIntent creation failed")
+        }
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        guard let secret = json?["client_secret"] as? String else {
+            throw PaymentError.networkError("Missing client_secret in response")
+        }
+        return secret
+    }
+
+    private func postToBackend(
+        endpoint: String,
+        body: [String: Any],
+        method: PaymentMethod
+    ) async throws -> PaymentResult {
+        guard let url = URL(string: "\(AppConfig.API.baseURL)\(endpoint)") else {
+            throw PaymentError.notConfigured
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw PaymentError.networkError("Payment request failed")
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(PaymentResult.self, from: data)
+    }
+}
+
+// MARK: - Apple Pay Delegate (private helper)
+
+private final class ApplePayDelegate: NSObject, PKPaymentAuthorizationControllerDelegate {
+    private let order:        Order
+    private let continuation: CheckedContinuation<PaymentResult, Error>
+
+    init(order: Order, continuation: CheckedContinuation<PaymentResult, Error>) {
+        self.order        = order
+        self.continuation = continuation
+    }
+
+    func paymentAuthorizationController(
+        _ controller: PKPaymentAuthorizationController,
+        didAuthorizePayment payment: PKPayment,
+        handler completion: @escaping (PKPaymentAuthorizationResult) -> Void
+    ) {
+        // In production: send payment.token to your backend / Stripe here
+        // to confirm the PaymentIntent, then call completion(.init(status: .success, errors: nil))
+        completion(PKPaymentAuthorizationResult(status: .success, errors: nil))
+
+        let result = PaymentResult(
+            transactionID: "ap_\(UUID().uuidString.prefix(12))",
+            amountCents:   order.totalCents,
+            method:        "Apple Pay",
+            timestamp:     Date(),
+            receiptURL:    nil
+        )
+        continuation.resume(returning: result)
+    }
+
+    func paymentAuthorizationControllerDidFinish(_ controller: PKPaymentAuthorizationController) {
+        controller.dismiss()
+    }
+
+    func paymentAuthorizationControllerWillAuthorizePayment(_ controller: PKPaymentAuthorizationController) {}
+}
+//
+// AudioManager.swift
+// Spling
+//
+import AVFoundation
+
+/// Plays short UI sounds (the "Spling ding" on successful order).
+/// Uses AVAudioPlayer so the sound is not affected by the ringer switch —
+/// this mirrors the behaviour of payment apps like Apple Pay.
+final class AudioManager {
+    static let shared = AudioManager()
+    private init() { preparePlayer() }
+
+    private var player: AVAudioPlayer?
+
+    // MARK: - Setup
+
+    private func preparePlayer() {
+        guard let url = Bundle.main.url(
+            forResource: AppConfig.Audio.splingDingFile,
+            withExtension: AppConfig.Audio.splingDingExtension
+        ) else {
+            // Sound file not present — fail silently in production,
+            // log in debug so the developer knows to add the asset.
+            #if DEBUG
+            print("[AudioManager] ⚠️ Missing sound file: \(AppConfig.Audio.splingDingFile).\(AppConfig.Audio.splingDingExtension)")
+            #endif
+            return
+        }
+
+        do {
+            // Use .ambient so the sound mixes with background music
+            try AVAudioSession.sharedInstance().setCategory(
+                .ambient,
+                mode: .default,
+                options: .mixWithOthers
+            )
+            try AVAudioSession.sharedInstance().setActive(true)
+            player = try AVAudioPlayer(contentsOf: url)
+            player?.prepareToPlay()
+            player?.volume = 0.6
+        } catch {
+            #if DEBUG
+            print("[AudioManager] AVAudioSession error: \(error)")
+            #endif
+        }
+    }
+
+    // MARK: - Playback
+
+    /// Plays the confirmation sound when an order is successfully placed.
+    func playSplingDing() {
+        guard let player else { return }
+        if player.isPlaying { player.stop() }
+        player.currentTime = 0
+        player.play()
+    }
+}
+//
+// PersistenceManager.swift
+// Spling
+//
+// JSON-file-backed persistence for UserProfile and ScrapedMenuCache.
+// This gives data survival across app restarts without the overhead of
+// CoreData for a v1 build. Swap to CoreData or CloudKit for multi-device sync.
+//
+import Foundation
+
+final class PersistenceManager {
+    static let shared = PersistenceManager()
+    private init() {}
+
+    private let fm = FileManager.default
+
+    // MARK: - Directories
+
+    private var documentsURL: URL {
+        fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    }
+
+    private func url(for filename: String) -> URL {
+        documentsURL.appendingPathComponent(filename)
+    }
+
+    // MARK: - UserProfile
+
+    private let profileFilename = "user_profile.json"
+
+    func saveProfile(_ profile: UserProfile) {
+        save(profile, to: profileFilename)
+    }
+
+    func loadProfile() -> UserProfile {
+        load(UserProfile.self, from: profileFilename) ?? UserProfile()
+    }
+
+    // MARK: - Scraped Menu Cache
+
+    private let menuCacheFilename = "menu_cache.json"
+
+    func saveMenuCache(_ cache: [String: ScrapedMenuCache]) {
+        save(cache, to: menuCacheFilename)
+    }
+
+    func loadMenuCache() -> [String: ScrapedMenuCache] {
+        load([String: ScrapedMenuCache].self, from: menuCacheFilename) ?? [:]
+    }
+
+    // MARK: - Generic Helpers
+
+    private let encoder: JSONEncoder = {
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .iso8601
+        e.outputFormatting = .prettyPrinted
+        return e
+    }()
+
+    private let decoder: JSONDecoder = {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601
+        return d
+    }()
+
+    private func save<T: Encodable>(_ value: T, to filename: String) {
+        do {
+            let data = try encoder.encode(value)
+            try data.write(to: url(for: filename), options: .atomicWrite)
+        } catch {
+            #if DEBUG
+            print("[PersistenceManager] Save error (\(filename)): \(error)")
+            #endif
+        }
+    }
+
+    private func load<T: Decodable>(_ type: T.Type, from filename: String) -> T? {
+        let fileURL = url(for: filename)
+        guard fm.fileExists(atPath: fileURL.path) else { return nil }
+        do {
+            let data = try Data(contentsOf: fileURL)
+            return try decoder.decode(type, from: data)
+        } catch {
+            #if DEBUG
+            print("[PersistenceManager] Load error (\(filename)): \(error)")
+            #endif
+            return nil
+        }
+    }
+
+    // MARK: - Clear All (used on sign-out)
+
+    func clearAll() {
+        for filename in [profileFilename, menuCacheFilename] {
+            try? fm.removeItem(at: url(for: filename))
+        }
+    }
+}
+//
+// AIMenuService.swift
+// Spling
+//
+// Scrapes a vendor's website and uses the Claude API to extract
+// structured menu data (categories, items, prices, descriptions).
+// Menus are cached on disk so they survive app restarts.
+//
+import Foundation
+import CryptoKit
+
+// MARK: - Errors
+
+enum AIMenuError: LocalizedError {
+    case invalidURL
+    case fetchFailed(String)
+    case noUsableContent
+    case parseFailed(String)
+    case rateLimited
+    case apiKeyMissing
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL:           return "That doesn't look like a valid website address."
+        case .fetchFailed(let msg): return "Couldn't load the website: \(msg)"
+        case .noUsableContent:      return "The website didn't contain readable menu content. Try linking directly to the /menu page, or paste a static version of the URL."
+        case .parseFailed(let msg): return "AI couldn't extract a menu: \(msg)"
+        case .rateLimited:          return "Too many requests. Please wait a moment and try again."
+        case .apiKeyMissing:        return "Anthropic API key not configured. Add it in Settings → API Key."
+        }
+    }
+}
+
+// MARK: - Cache Entry
+
+struct ScrapedMenuCache: Codable {
+    let vendorURL:  String
+    let vendorName: String
+    let categories: [MenuCategory]
+    let scrapedAt:  Date
+    let expiresAt:  Date
+    let confidence: String   // "high" | "medium" | "low"
+    let notes:      String?
+
+    var isExpired: Bool { Date() > expiresAt }
+
+    var confidenceColor: String {
+        switch confidence {
+        case "high":   return "green"
+        case "medium": return "orange"
+        default:       return "red"
+        }
+    }
+}
+
+// MARK: - Claude Wire Types (private)
+
+private struct ClaudeRequest: Encodable {
+    let model:      String
+    let max_tokens: Int
+    let system:     String
+    let messages:   [ClaudeMessage]
+}
+private struct ClaudeMessage: Encodable { let role: String; let content: String }
+private struct ClaudeResponse: Decodable { let content: [ClaudeContent]; let stop_reason: String? }
+private struct ClaudeContent: Decodable  { let type: String; let text: String? }
+
+private struct AIExtractedMenu: Decodable {
+    let vendorName:  String
+    let currency:    String
+    let categories:  [AIMenuCategory]
+    let confidence:  String
+    let notes:       String?
+}
+private struct AIMenuCategory: Decodable { let name: String; let items: [AIMenuItem] }
+private struct AIMenuItem: Decodable {
+    let name:         String
+    let description:  String
+    let priceCents:   Int
+    let priceDisplay: String
+    let calories:     Int?
+    let allergens:    [String]
+    let isAvailable:  Bool
+}
+
+// MARK: - AI Menu Service
+
+actor AIMenuService {
+    static let shared = AIMenuService()
+    private init() {
+        // Hydrate cache from disk on first use
+        self.cache = PersistenceManager.shared.loadMenuCache()
+    }
+
+    private var cache: [String: ScrapedMenuCache] = [:]
+
+    // MARK: - Public API
+
+    func fetchMenu(from urlString: String, vendorName: String? = nil) async throws -> ScrapedMenuCache {
+        let key = normalise(urlString)
+
+        if let cached = cache[key], !cached.isExpired { return cached }
+
+        guard !AppConfig.Claude.apiKey.isEmpty else { throw AIMenuError.apiKeyMissing }
+        guard let url = URL(string: key) else { throw AIMenuError.invalidURL }
+
+        let html      = try await fetchHTML(from: url)
+        let text      = extractReadableText(from: html)
+        guard text.count > 200 else { throw AIMenuError.noUsableContent }
+
+        let extracted  = try await callClaude(pageText: text, siteURL: key, vendorHint: vendorName)
+        let categories = mapToAppModels(extracted.categories, vendorURL: key)
+
+        let result = ScrapedMenuCache(
+            vendorURL:  key,
+            vendorName: vendorName ?? extracted.vendorName,
+            categories: categories,
+            scrapedAt:  Date(),
+            expiresAt:  Date().addingTimeInterval(AppConfig.Claude.menuCacheTTL),
+            confidence: extracted.confidence,
+            notes:      extracted.notes
+        )
+        cache[key] = result
+        // Persist to disk so menus survive app restarts
+        PersistenceManager.shared.saveMenuCache(cache)
+        return result
+    }
+
+    func clearCache(for urlString: String) {
+        cache.removeValue(forKey: normalise(urlString))
+        PersistenceManager.shared.saveMenuCache(cache)
+    }
+
+    func clearAllCache() {
+        cache.removeAll()
+        PersistenceManager.shared.saveMenuCache(cache)
+    }
+
+    // MARK: - Step 1: Fetch HTML
+
+    private func fetchHTML(from url: URL) async throws -> String {
+        var req = URLRequest(url: url)
+        req.setValue(
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) " +
+            "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            forHTTPHeaderField: "User-Agent"
+        )
+        req.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
+        req.timeoutInterval = 15
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: req)
+            guard let http = response as? HTTPURLResponse else {
+                throw AIMenuError.fetchFailed("No HTTP response")
+            }
+            if http.statusCode == 429 { throw AIMenuError.rateLimited }
+            guard (200...299).contains(http.statusCode) else {
+                throw AIMenuError.fetchFailed("HTTP \(http.statusCode)")
+            }
+            if let s = String(data: data, encoding: .utf8)      { return s }
+            if let s = String(data: data, encoding: .isoLatin1) { return s }
+            throw AIMenuError.fetchFailed("Could not decode page encoding")
+        } catch let e as AIMenuError { throw e }
+        catch { throw AIMenuError.fetchFailed(error.localizedDescription) }
+    }
+
+    // MARK: - Step 2: Strip HTML → readable text
+
+    private func extractReadableText(from html: String) -> String {
+        var t = html
+        // Prefer <main> content to reduce noise
+        if let mainRange = t.range(of: "<main[^>]*>", options: .regularExpression),
+           let mainEnd   = t.range(of: "</main>", options: .regularExpression) {
+            t = String(t[mainRange.upperBound..<mainEnd.lowerBound])
+        }
+        for tag in ["script","style","nav","footer","head","iframe","noscript","header","aside"] {
+            t = t.replacingOccurrences(
+                of: "<\(tag)[\\s\\S]*?</\(tag)>",
+                with: " ",
+                options: [.regularExpression, .caseInsensitive]
+            )
+        }
+        t = t.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+        for (entity, char) in [
+            ("&amp;","&"),("&lt;","<"),("&gt;",">"),("&nbsp;"," "),
+            ("&#39;","'"),("&quot;","\""),("&cent;","¢"),("&pound;","£"),
+            ("&euro;","€"),("&dollar;","$"),("&frac12;","½")
+        ] { t = t.replacingOccurrences(of: entity, with: char) }
+        t = t.components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        let cap = 12_000
+        if t.count > cap { t = String(t.prefix(cap)) + " [content truncated]" }
+        return t
+    }
+
+    // MARK: - Step 3: Claude API call
+
+    private func callClaude(pageText: String, siteURL: String, vendorHint: String?) async throws -> AIExtractedMenu {
+        guard let apiURL = URL(string: AppConfig.Claude.apiURL) else {
+            throw AIMenuError.parseFailed("Invalid Claude API URL in AppConfig")
+        }
+        let hint   = vendorHint.map { "The business is called \"\($0)\".\n" } ?? ""
+        let system = """
+        You are a menu extraction specialist for Spling, an NFC ordering app.
+        Parse restaurant or retail website content and return structured JSON.
+
+        STRICT RULES:
+        1. Return ONLY valid JSON — no markdown, no explanations, no code fences.
+        2. Prices MUST be integers in cents. "$5.99" → 599. "from $5" → 500. Unknown → 0.
+        3. Also include the original price string in priceDisplay exactly as shown.
+        4. Group items into logical categories (Drinks, Burgers, Sides, Desserts, etc.).
+        5. Skip clearly non-consumable items (gift cards, merchandise, catering for >20 people).
+        6. isAvailable = false for anything marked sold out, unavailable, or discontinued.
+        7. allergens: only list from [Gluten, Dairy, Egg, Soy, Nuts, Fish, Shellfish, Sesame].
+        8. confidence: "high" = clear prices + categories found. "medium" = partial data. "low" = guessed structure.
+        9. notes: caveats like "prices may vary by location", "limited time menu", "seasonal items".
+
+        Required JSON schema — return nothing else:
+        {
+          "vendorName": "string",
+          "currency": "USD" | "CAD" | "GBP" | "EUR" | "AUD",
+          "confidence": "high" | "medium" | "low",
+          "notes": "string or null",
+          "categories": [
+            {
+              "name": "string",
+              "items": [
+                {
+                  "name": "string",
+                  "description": "string",
+                  "priceCents": integer,
+                  "priceDisplay": "string",
+                  "calories": integer or null,
+                  "allergens": [],
+                  "isAvailable": boolean
+                }
+              ]
+            }
+          ]
+        }
+        """
+        let user = """
+        \(hint)URL: \(siteURL)
+        Page text:
+        \(pageText)
+        Extract the full menu and return as JSON only.
+        """
+        let payload = ClaudeRequest(
+            model:      AppConfig.Claude.model,
+            max_tokens: AppConfig.Claude.menuExtractionMaxTokens,
+            system:     system,
+            messages:   [ClaudeMessage(role: "user", content: user)]
+        )
+        var req = URLRequest(url: apiURL)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(AppConfig.Claude.apiKey, forHTTPHeaderField: "x-api-key")
+        req.setValue(AppConfig.Claude.apiVersion, forHTTPHeaderField: "anthropic-version")
+        req.httpBody = try JSONEncoder().encode(payload)
+        req.timeoutInterval = 45
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse else {
+            throw AIMenuError.parseFailed("No HTTP response from Claude API")
+        }
+        if http.statusCode == 429 { throw AIMenuError.rateLimited }
+        guard (200...299).contains(http.statusCode) else {
+            throw AIMenuError.parseFailed("Claude API HTTP \(http.statusCode)")
+        }
+
+        let claudeResp = try JSONDecoder().decode(ClaudeResponse.self, from: data)
+        guard let raw = claudeResp.content.first(where: { $0.type == "text" })?.text,
+              !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw AIMenuError.parseFailed("Empty response from Claude")
+        }
+
+        let cleaned = raw
+            .replacingOccurrences(of: "```json", with: "")
+            .replacingOccurrences(of: "```",     with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let jsonData = cleaned.data(using: .utf8) else {
+            throw AIMenuError.parseFailed("Response was not valid UTF-8")
+        }
+        do {
+            return try JSONDecoder().decode(AIExtractedMenu.self, from: jsonData)
+        } catch {
+            throw AIMenuError.parseFailed("JSON schema mismatch: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Step 4: Map AI output → app models
+
+    private func mapToAppModels(_ aiCategories: [AIMenuCategory], vendorURL: String) -> [MenuCategory] {
+        aiCategories.compactMap { cat in
+            let items: [MenuItem] = cat.items
+                .filter { $0.isAvailable }
+                .map { item in
+                    let desc = !item.description.isEmpty
+                        ? item.description
+                        : (!item.priceDisplay.isEmpty ? item.priceDisplay : "")
+                    return MenuItem(
+                        // Stable ID: hash of vendorURL + category + item name
+                        id:             stableID(vendorURL: vendorURL, category: cat.name, itemName: item.name),
+                        name:           item.name,
+                        description:    desc,
+                        priceCents:     item.priceCents,
+                        imageURL:       nil,
+                        customizations: [],
+                        allergens:      item.allergens,
+                        calories:       item.calories
+                    )
+                }
+            guard !items.isEmpty else { return nil }
+            return MenuCategory(
+                id:    stableID(vendorURL: vendorURL, category: cat.name, itemName: ""),
+                name:  cat.name,
+                items: items
+            )
+        }
+    }
+
+    /// Generates a deterministic ID from a hash so re-scraping doesn't break cart references.
+    private func stableID(vendorURL: String, category: String, itemName: String) -> String {
+        let input = "\(vendorURL)|\(category)|\(itemName)"
+        let hash  = SHA256.hash(data: Data(input.utf8))
+        return hash.prefix(16).map { String(format: "%02x", $0) }.joined()
+    }
+
+    // MARK: - URL Normalisation
+
+    private func normalise(_ raw: String) -> String {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !s.hasPrefix("http://") && !s.hasPrefix("https://") { s = "https://" + s }
+        if s.hasSuffix("/") { s = String(s.dropLast()) }
+        return s.lowercased()
+    }
+}
+//
+// Models.swift
+// Spling
+//
+import Foundation
+
+// MARK: - NFC Terminal
+
+enum TerminalType: String, Codable, Hashable, CaseIterable {
+    case speakerBox  = "Drive-Through Speaker Box"
+    case intercom    = "Drive-Through Intercom"
+    case frontDesk   = "Front Desk"
+    case kiosk       = "Self-Service Kiosk"
+
+    var orderChannel: OrderChannel {
+        switch self {
+        case .speakerBox, .intercom: return .driveThrough
+        case .frontDesk, .kiosk:     return .inStore
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .speakerBox: return "speaker.wave.2.fill"
+        case .intercom:   return "phone.fill"
+        case .frontDesk:  return "person.crop.rectangle.fill"
+        case .kiosk:      return "rectangle.portrait.fill"
+        }
+    }
+}
+
+struct NFCTagPayload: Codable {
+    let vendorID:      String
+    let terminalID:    String
+    let terminalType:  TerminalType
+    let schemaVersion: Int
+
+    func toNDEFData() throws -> Data {
+        try JSONEncoder().encode(self)
+    }
+
+    static func from(ndefPayload: Data) throws -> NFCTagPayload {
+        guard ndefPayload.count > 2 else { throw NFCTagDecodeError.tooShort }
+        let langLen = Int(ndefPayload[1] & 0x3F)
+        let start   = 2 + langLen
+        guard start < ndefPayload.count else { throw NFCTagDecodeError.tooShort }
+        let jsonData = ndefPayload.subdata(in: start..<ndefPayload.count)
+        return try JSONDecoder().decode(NFCTagPayload.self, from: jsonData)
+    }
+}
+
+enum NFCTagDecodeError: LocalizedError {
+    case tooShort
+    case invalidJSON(String)
+    var errorDescription: String? {
+        switch self {
+        case .tooShort:            return "NFC tag data was too short to decode."
+        case .invalidJSON(let m):  return "NFC tag JSON invalid: \(m)"
+        }
+    }
+}
+
+struct Terminal: Identifiable, Codable {
+    let id:               String
+    let vendorID:         String
+    let type:             TerminalType
+    let label:            String
+    let queueLength:      Int
+    let isAcceptingOrders: Bool
+    let menuLastUpdated:  Date
+    let posSystemID:      String
+}
+
+// MARK: - POS Integration
+
+struct POSSystemInfo: Codable {
+    let systemID:               String
+    let provider:               String
+    let endpointURL:            URL
+    let requiresAcknowledgement: Bool
+}
+
+struct POSOrderPayload: Codable {
+    let splingOrderID:          UUID
+    let terminalID:             String
+    let items:                  [POSOrderLine]
+    let totalCents:             Int
+    let paymentTransactionID:   String
+    let channel:                OrderChannel
+    let placedByCaretaker:      Bool
+    let customerFacingReference: String
+    let timestamp:              Date
+}
+
+struct POSOrderLine: Codable {
+    let posItemID:          String
+    let name:               String
+    let quantity:           Int
+    let unitPriceCents:     Int
+    let modifiers:          [String]
+    let specialInstructions: String
+}
+
+struct POSAcknowledgement: Codable {
+    let splingOrderID:          UUID
+    let posOrderID:             String
+    let estimatedReadyMinutes:  Int
+    let queuePosition:          Int
+    let pickupReference:        String
+    let acceptedAt:             Date
+}
+
+// MARK: - Vendor
+
+struct Vendor: Identifiable, Codable, Hashable {
+    let id:                         String
+    let name:                       String
+    let logoURL:                    URL?
+    let address:                    String
+    let menuCategories:             [MenuCategory]
+    let terminals:                  [Terminal]
+    let posInfo:                    POSSystemInfo?
+    let supportsOrderHistory:       Bool
+    let personalizedRecommendations: Bool
+
+    init(
+        id: String,
+        name: String,
+        logoURL: URL? = nil,
+        address: String = "",
+        menuCategories: [MenuCategory] = [],
+        terminals: [Terminal] = [],
+        posInfo: POSSystemInfo? = nil,
+        supportsOrderHistory: Bool = true,
+        personalizedRecommendations: Bool = false
+    ) {
+        self.id                          = id
+        self.name                        = name
+        self.logoURL                     = logoURL
+        self.address                     = address
+        self.menuCategories              = menuCategories
+        self.terminals                   = terminals
+        self.posInfo                     = posInfo
+        self.supportsOrderHistory        = supportsOrderHistory
+        self.personalizedRecommendations = personalizedRecommendations
+    }
+}
+
+// MARK: - Menu
+
+struct MenuCategory: Identifiable, Codable, Hashable {
+    let id:    String
+    let name:  String
+    let items: [MenuItem]
+}
+
+struct MenuItem: Identifiable, Codable, Hashable {
+    let id:             String
+    let name:           String
+    let description:    String
+    let priceCents:     Int
+    let imageURL:       URL?
+    let customizations: [Customization]
+    let allergens:      [String]
+    let calories:       Int?
+
+    var formattedPrice: String {
+        String(format: "$%.2f", Double(priceCents) / 100.0)
+    }
+}
+
+struct Customization: Identifiable, Codable, Hashable {
+    let id:            String
+    let name:          String
+    let options:       [CustomizationOption]
+    let isRequired:    Bool
+    let maxSelections: Int
+}
+
+struct CustomizationOption: Identifiable, Codable, Hashable {
+    let id:                  String
+    let name:                String
+    let additionalCostCents: Int
+}
+
+// MARK: - Order
+
+struct OrderItem: Identifiable, Codable, Equatable {
+    let id:                     UUID
+    let menuItem:               MenuItem
+    var quantity:               Int
+    var selectedCustomizations: [String: String]  // customizationID → optionID
+    var specialInstructions:    String
+
+    /// Fixed: quantity is applied once to base price, extras are per-unit then multiplied.
+    var subtotalCents: Int {
+        let extras = selectedCustomizations.values.compactMap { optionID -> Int? in
+            menuItem.customizations
+                .flatMap(\.options)
+                .first(where: { $0.id == optionID })
+                .map(\.additionalCostCents)
+        }.reduce(0, +)
+        return (menuItem.priceCents + extras) * quantity
+    }
+
+    init(
+        menuItem: MenuItem,
+        quantity: Int = 1,
+        customizations: [String: String] = [:],
+        instructions: String = ""
+    ) {
+        self.id                     = UUID()
+        self.menuItem               = menuItem
+        self.quantity               = quantity
+        self.selectedCustomizations = customizations
+        self.specialInstructions    = instructions
+    }
+}
+
+struct Order: Identifiable, Codable {
+    let id:               UUID
+    let vendorID:         String
+    let vendorName:       String
+    var items:            [OrderItem]
+    let placedAt:         Date
+    var status:           OrderStatus
+    var paymentMethod:    PaymentMethod?
+    var totalCents:       Int { items.reduce(0) { $0 + $1.subtotalCents } }
+    var formattedTotal:   String { String(format: "$%.2f", Double(totalCents) / 100.0) }
+    let channel:          OrderChannel
+    let placedByCaretaker: Bool
+    let terminalID:       String?
+    let terminalType:     TerminalType?
+    var posOrderID:       String?
+    var pickupReference:  String?
+
+    init(
+        vendorID: String,
+        vendorName: String,
+        items: [OrderItem] = [],
+        channel: OrderChannel = .inStore,
+        placedByCaretaker: Bool = false,
+        terminalID: String? = nil,
+        terminalType: TerminalType? = nil
+    ) {
+        self.id                = UUID()
+        self.vendorID          = vendorID
+        self.vendorName        = vendorName
+        self.items             = items
+        self.placedAt          = Date()
+        self.status            = .pending
+        self.channel           = channel
+        self.placedByCaretaker = placedByCaretaker
+        self.terminalID        = terminalID
+        self.terminalType      = terminalType
+        self.posOrderID        = nil
+        self.pickupReference   = nil
+    }
+}
+
+enum OrderStatus: String, Codable, CaseIterable {
+    case pending    = "Pending"
+    case confirmed  = "Confirmed"
+    case preparing  = "Preparing"
+    case ready      = "Ready for Pickup"
+    case completed  = "Completed"
+    case cancelled  = "Cancelled"
+
+    var systemImage: String {
+        switch self {
+        case .pending:   return "clock"
+        case .confirmed: return "checkmark.circle"
+        case .preparing: return "flame"
+        case .ready:     return "bag.fill"
+        case .completed: return "checkmark.seal.fill"
+        case .cancelled: return "xmark.circle"
+        }
+    }
+}
+
+enum OrderChannel: String, Codable, CaseIterable, Identifiable {
+    case driveThrough = "Drive-Through"
+    case inStore      = "In-Store"
+    case online       = "Online"
+
+    var id: String { rawValue }
+
+    var priority: Int {
+        switch self {
+        case .driveThrough: return 0
+        case .inStore:      return 1
+        case .online:       return 2
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .driveThrough: return "car.fill"
+        case .inStore:      return "building.2.fill"
+        case .online:       return "globe"
+        }
+    }
+}
+
+// MARK: - Saved / Favourite Order
+
+struct SavedOrder: Identifiable, Codable {
+    let id:                      UUID
+    var name:                    String
+    let vendorID:                String
+    let vendorName:              String
+    let items:                   [OrderItem]
+    let createdAt:               Date
+    let createdByCaretaker:      Bool
+    let originatingTerminalType: TerminalType?
+
+    init(
+        name: String,
+        vendorID: String,
+        vendorName: String,
+        items: [OrderItem],
+        createdByCaretaker: Bool = false,
+        originatingTerminalType: TerminalType? = nil
+    ) {
+        self.id                      = UUID()
+        self.name                    = name
+        self.vendorID                = vendorID
+        self.vendorName              = vendorName
+        self.items                   = items
+        self.createdAt               = Date()
+        self.createdByCaretaker      = createdByCaretaker
+        self.originatingTerminalType = originatingTerminalType
+    }
+
+    func asOrder(
+        channel: OrderChannel? = nil,
+        terminalID: String? = nil,
+        terminalType: TerminalType? = nil
+    ) -> Order {
+        let resolvedChannel = channel ?? originatingTerminalType?.orderChannel ?? .inStore
+        return Order(
+            vendorID: vendorID,
+            vendorName: vendorName,
+            items: items,
+            channel: resolvedChannel,
+            placedByCaretaker: createdByCaretaker,
+            terminalID: terminalID,
+            terminalType: terminalType ?? originatingTerminalType
+        )
+    }
+}
+
+// MARK: - Queue
+
+struct QueueStatus: Codable {
+    let queueID:              String
+    let position:             Int
+    let estimatedWaitMinutes: Int
+    let updatedAt:            Date
+}
+
+// MARK: - Payment
+
+enum PaymentMethod: Codable, Hashable, Identifiable {
+    case applePay
+    case creditCard(last4: String, brand: String)
+    case debitCard(last4: String, brand: String)
+    case splingWallet(balance: Int)
+
+    var id: String {
+        switch self {
+        case .applePay:              return "applePay"
+        case .creditCard(let l, _): return "credit_\(l)"
+        case .debitCard(let l, _):  return "debit_\(l)"
+        case .splingWallet:         return "splingWallet"
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .applePay:                    return "Apple Pay"
+        case .creditCard(let l, let b):    return "\(b) •••• \(l)"
+        case .debitCard(let l, let b):     return "\(b) Debit •••• \(l)"
+        case .splingWallet(let balance):
+            return "Spling Wallet (\(String(format: "$%.2f", Double(balance) / 100.0)))"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .applePay:       return "applelogo"
+        case .creditCard:     return "creditcard.fill"
+        case .debitCard:      return "creditcard"
+        case .splingWallet:   return "wallet.pass.fill"
+        }
+    }
+}
+
+struct PaymentResult: Codable {
+    let transactionID: String
+    let amountCents:   Int
+    let method:        String
+    let timestamp:     Date
+    let receiptURL:    URL?
+}
+
+// MARK: - Loyalty
+
+struct LoyaltyAccount: Codable {
+    var points:         Int
+    var lifetimePoints: Int
+    var transactions:   [LoyaltyTransaction]
+
+    var tier: LoyaltyTier {
+        switch points {
+        case AppConfig.Loyalty.platinumThreshold...: return .platinum
+        case AppConfig.Loyalty.goldThreshold...:     return .gold
+        case AppConfig.Loyalty.silverThreshold...:   return .silver
+        default:                                     return .bronze
+        }
+    }
+
+    var pointsToNextTier: Int? {
+        switch tier {
+        case .bronze:   return AppConfig.Loyalty.silverThreshold - points
+        case .silver:   return AppConfig.Loyalty.goldThreshold - points
+        case .gold:     return AppConfig.Loyalty.platinumThreshold - points
+        case .platinum: return nil
+        }
+    }
+
+    init() {
+        self.points         = 0
+        self.lifetimePoints = 0
+        self.transactions   = []
+    }
+}
+
+enum LoyaltyTier: String, Codable {
+    case bronze   = "Bronze"
+    case silver   = "Silver"
+    case gold     = "Gold"
+    case platinum = "Platinum"
+
+    var color: String {
+        switch self {
+        case .bronze:   return "brown"
+        case .silver:   return "gray"
+        case .gold:     return "yellow"
+        case .platinum: return "purple"
+        }
+    }
+
+    var minimumPoints: Int {
+        switch self {
+        case .bronze:   return 0
+        case .silver:   return AppConfig.Loyalty.silverThreshold
+        case .gold:     return AppConfig.Loyalty.goldThreshold
+        case .platinum: return AppConfig.Loyalty.platinumThreshold
+        }
+    }
+}
+
+struct LoyaltyTransaction: Identifiable, Codable {
+    let id:           UUID
+    let orderID:      UUID
+    let pointsEarned: Int
+    let date:         Date
+    let vendorName:   String
+}
+
+// MARK: - Accessibility Settings
+
+struct AccessibilitySettings: Codable {
+    var voiceGuidanceEnabled:  Bool   = false
+    var hapticFeedbackEnabled: Bool   = true
+    var fontSize:              Double = AppConfig.Accessibility.defaultTextSize
+    var highContrastEnabled:   Bool   = false
+    var reducedMotionEnabled:  Bool   = false
+    var caretakerModeEnabled:  Bool   = false
+    var caretakerName:         String = ""
+}
+
+// MARK: - Review
+
+/// A post-order review left by a Spling user about a vendor.
+struct Review: Identifiable, Codable {
+    let id:              UUID
+    let vendorID:        String
+    let vendorName:      String
+    let orderID:         UUID
+    let rating:          Int          // 1–5
+    let title:           String
+    let body:            String
+    let authorName:      String       // Display name or "Anonymous"
+    let createdAt:       Date
+    var helpfulCount:    Int
+    var isVerifiedOrder: Bool         // true when the review is tied to a real order
+
+    init(
+        vendorID: String,
+        vendorName: String,
+        orderID: UUID,
+        rating: Int,
+        title: String,
+        body: String,
+        authorName: String,
+        isVerifiedOrder: Bool = true
+    ) {
+        self.id              = UUID()
+        self.vendorID        = vendorID
+        self.vendorName      = vendorName
+        self.orderID         = orderID
+        self.rating          = max(1, min(5, rating))
+        self.title           = title
+        self.body            = body
+        self.authorName      = authorName
+        self.createdAt       = Date()
+        self.helpfulCount    = 0
+        self.isVerifiedOrder = isVerifiedOrder
+    }
+}
+
+/// Aggregated vendor review stats shown on the vendor header.
+struct VendorReviewSummary: Codable {
+    let vendorID:       String
+    let averageRating:  Double
+    let totalReviews:   Int
+    let distribution:   [Int: Int]   // rating → count
+
+    var formattedAverage: String {
+        String(format: "%.1f", averageRating)
+    }
+
+    var starDisplay: String {
+        let filled  = Int(averageRating.rounded())
+        let stars   = String(repeating: "★", count: filled)
+        let empty   = String(repeating: "☆", count: 5 - filled)
+        return stars + empty
+    }
+}
+
+// MARK: - User Profile
+
+struct UserProfile: Codable {
+    let id:                  UUID
+    var displayName:         String
+    var paymentMethods:      [PaymentMethod]
+    var preferredPaymentID:  String?
+    var savedOrders:         [SavedOrder]
+    var loyaltyAccount:      LoyaltyAccount
+    var accessibilitySettings: AccessibilitySettings
+    var orderHistory:        [Order]
+    var reviews:             [Review]
+    var isCaretaker:         Bool
+
+    init(displayName: String = "") {
+        self.id                    = UUID()
+        self.displayName           = displayName
+        self.paymentMethods        = []
+        self.preferredPaymentID    = nil
+        self.savedOrders           = []
+        self.loyaltyAccount        = LoyaltyAccount()
+        self.accessibilitySettings = AccessibilitySettings()
+        self.orderHistory          = []
+        self.reviews               = []
+        self.isCaretaker           = false
+    }
+}
+
+// MARK: - Receipt
+
+struct Receipt: Identifiable, Codable {
+    let id:           UUID
+    let order:        Order
+    let payment:      PaymentResult
+    let vendorName:   String
+    let issuedAt:     Date
+    var pointsEarned: Int
+
+    init(order: Order, payment: PaymentResult, pointsEarned: Int = 0) {
+        self.id           = UUID()
+        self.order        = order
+        self.payment      = payment
+        self.vendorName   = order.vendorName
+        self.issuedAt     = Date()
+        self.pointsEarned = pointsEarned
+    }
+}
+//
+// AuthManager.swift
+// Spling
+//
+import LocalAuthentication
+import Foundation
+
+enum AuthError: LocalizedError {
+    case cancelled
+    case biometryNotAvailable
+    case biometryNotEnrolled
+    case biometryLockout
+    case failed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .cancelled:
+            return "Authentication was cancelled."
+        case .biometryNotAvailable:
+            return "Face ID / Touch ID is not available on this device."
+        case .biometryNotEnrolled:
+            return "No biometrics are enrolled. Please set up Face ID or Touch ID in Settings."
+        case .biometryLockout:
+            return "Biometry is locked after too many failed attempts. Please use your passcode."
+        case .failed(let msg):
+            return "Authentication failed: \(msg)"
+        }
+    }
+}
+
+final class AuthManager {
+    static let shared = AuthManager()
+    private init() {}
+
+    // MARK: - Biometric Auth
+
+    /// Authenticates the user with Face ID, Touch ID, or passcode fallback.
+    /// Throws `AuthError.cancelled` if the user dismisses the prompt.
+    func authenticate(reason: String = "Sign in to Spling") async throws {
+        let context = LAContext()
+        context.localizedCancelTitle = "Cancel"
+
+        var authError: NSError?
+
+        // Check whether biometry is available
+        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &authError) else {
+            throw mapLAError(authError)
+        }
+
+        // Perform evaluation — wraps callback-based API in async/await
+        do {
+            let success = try await context.evaluatePolicy(
+                .deviceOwnerAuthenticationWithBiometrics,
+                localizedReason: reason
+            )
+            if !success {
+                throw AuthError.failed("Authentication returned false without an error.")
+            }
+        } catch let laError as LAError {
+            throw mapLAError(laError as NSError)
+        }
+    }
+
+    // MARK: - Biometry Type
+
+    var biometryType: LABiometryType {
+        let context = LAContext()
+        _ = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+        return context.biometryType
+    }
+
+    var biometryName: String {
+        switch biometryType {
+        case .faceID:   return "Face ID"
+        case .touchID:  return "Touch ID"
+        case .opticID:  return "Optic ID"
+        default:        return "Biometrics"
+        }
+    }
+
+    // MARK: - Private Helpers
+
+    private func mapLAError(_ error: NSError?) -> AuthError {
+        guard let error else { return .failed("Unknown authentication error.") }
+        switch LAError.Code(rawValue: error.code) {
+        case .userCancel, .appCancel, .systemCancel:
+            return .cancelled
+        case .biometryNotAvailable, .passcodeNotSet:
+            return .biometryNotAvailable
+        case .biometryNotEnrolled:
+            return .biometryNotEnrolled
+        case .biometryLockout:
+            return .biometryLockout
+        default:
+            return .failed(error.localizedDescription)
+        }
+    }
+}
+//
+// Views.swift
+// Spling
+//
+import SwiftUI
+
+// MARK: - App Root
+
+@main
+struct SplingApp: App {
+    @StateObject private var session       = UserSessionViewModel()
+    @StateObject private var accessibility = AccessibilityViewModel()
+    @StateObject private var cart          = CartViewModel()
+
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+                .environmentObject(session)
+                .environmentObject(accessibility)
+                .environmentObject(cart)
+                .preferredColorScheme(accessibility.settings.highContrastEnabled ? .dark : nil)
+                .onAppear { HapticManager.shared.prepare() }
+        }
+    }
+}
+
+// MARK: - Content View
+
+struct ContentView: View {
+    @EnvironmentObject var session: UserSessionViewModel
+    var body: some View {
+        switch session.authState {
+        case .authenticated:                       MainTabView()
+        case .unauthenticated, .authenticating:    AuthView()
+        }
+    }
+}
+
+// MARK: - Auth View
+
+struct AuthView: View {
+    @EnvironmentObject var session:       UserSessionViewModel
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+
+    var body: some View {
+        VStack(spacing: 32) {
+            Spacer()
+            VStack(spacing: 12) {
+                Image(systemName: "fork.knife.circle.fill")
+                    .resizable().scaledToFit().frame(width: 90, height: 90)
+                    .foregroundStyle(.blue)
+                Text("spLing")
+                    .font(.system(size: accessibility.dynamicFontSize + 20, weight: .bold, design: .rounded))
+                Text("Order smarter. No more waiting.")
+                    .font(.system(size: accessibility.dynamicFontSize))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            Spacer()
+            if let error = session.authError {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red).font(.caption)
+                    .multilineTextAlignment(.center).padding(.horizontal)
+            }
+            Button {
+                session.authenticate()
+            } label: {
+                Group {
+                    if session.authState == .authenticating {
+                        ProgressView().tint(.white)
+                    } else {
+                        Label("Sign in with \(AuthManager.shared.biometryName)", systemImage: "faceid")
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .font(.system(size: accessibility.dynamicFontSize, weight: .semibold))
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(session.authState == .authenticating)
+            .padding(.horizontal)
+            .accessibilityLabel("Authenticate with \(AuthManager.shared.biometryName) to access Spling")
+            Spacer().frame(height: 32)
+        }
+        .padding()
+    }
+}
+
+// MARK: - Main Tab View
+
+struct MainTabView: View {
+    @EnvironmentObject var session: UserSessionViewModel
+    var body: some View {
+        TabView {
+            NavigationStack { HomeView() }
+                .tabItem { Label("Home",    systemImage: "house.fill") }
+            NavigationStack { OrderHistoryView() }
+                .tabItem { Label("Orders",  systemImage: "bag.fill") }
+            NavigationStack { LoyaltyView() }
+                .tabItem { Label("Rewards", systemImage: "trophy.fill") }
+            NavigationStack { ProfileView() }
+                .tabItem { Label("Profile", systemImage: "person.crop.circle.fill") }
+        }
+    }
+}
+
+// MARK: - Home View
+
+struct HomeView: View {
+    @EnvironmentObject var session:       UserSessionViewModel
+    @EnvironmentObject var cart:          CartViewModel
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+
+    @StateObject private var nfcManager = NFCManager()
+    @StateObject private var vendorVM   = VendorViewModel()
+
+    @State private var showVendorMenu          = false
+    @State private var showSavedOrders         = false
+    @State private var showOrderPrioritization = false
+    @State private var showCaretakerSetup      = false
+    @State private var showAIMenuEntry         = false
+    @State private var nfcErrorMessage: String?
+    @State private var showNFCError            = false
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                greetingHeader
+                loyaltyCard
+                quickActions
+                if session.profile.accessibilitySettings.caretakerModeEnabled {
+                    caretakerSection
+                }
+                savedOrdersSection
+            }
+            .padding()
+        }
+        .navigationTitle("spLing")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                NavigationLink(destination: AccessibilitySettingsView()) {
+                    Image(systemName: "accessibility")
+                }
+                .accessibilityLabel("Accessibility Settings")
+            }
+        }
+        .navigationDestination(isPresented: $showVendorMenu) {
+            if let vendor = vendorVM.vendor {
+                VendorMenuView(vendor: vendor,
+                               terminal: vendorVM.detectedTerminal,
+                               orderHistory: vendorVM.orderHistoryAtVendor,
+                               personalizedOffers: vendorVM.personalizedOffers)
+            }
+        }
+        .navigationDestination(isPresented: $showSavedOrders)         { SavedOrdersView() }
+        .navigationDestination(isPresented: $showOrderPrioritization) { OrderPrioritizationView() }
+        .navigationDestination(isPresented: $showCaretakerSetup)      { CaretakerSetupView() }
+        .sheet(isPresented: $showAIMenuEntry) {
+            AIMenuView()
+                .environmentObject(accessibility)
+                .environmentObject(cart)
+                .environmentObject(session)
+        }
+        .alert("NFC Error", isPresented: $showNFCError) {
+            Button("OK") { nfcManager.reset() }
+        } message: {
+            Text(nfcErrorMessage ?? "An unknown NFC error occurred.")
+        }
+        .onChange(of: nfcManager.error) { _, error in
+            if let error {
+                nfcErrorMessage = error.localizedDescription
+                showNFCError    = true
+                accessibility.announceForVoiceOver("NFC error: \(error.localizedDescription)")
+            }
+        }
+        .onChange(of: nfcManager.detectedPayload) { _, tagPayload in
+            guard let tagPayload else { return }
+            Task {
+                vendorVM.loadMockVendor(from: tagPayload)   // swap for vendorVM.load() when backend is live
+                if let vendor = vendorVM.vendor {
+                    cart.vendorID          = vendor.id
+                    cart.vendorName        = vendor.name
+                    cart.activeTerminalID  = tagPayload.terminalID
+                    cart.activeTerminalType = tagPayload.terminalType
+                    vendorVM.orderHistoryAtVendor = session.savedOrders(for: vendor.id)
+                    showVendorMenu         = true
+                    accessibility.announceForVoiceOver(
+                        "Detected \(tagPayload.terminalType.rawValue) at \(vendor.name). Menu loaded."
+                    )
+                }
+            }
+        }
+    }
+
+    private var greetingHeader: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Good \(timeOfDay),")
+                    .foregroundStyle(.secondary)
+                    .font(.system(size: accessibility.dynamicFontSize - 2))
+                Text(session.profile.displayName.isEmpty ? "Welcome back" : session.profile.displayName)
+                    .font(.system(size: accessibility.dynamicFontSize + 4, weight: .bold))
+            }
+            Spacer()
+        }
+    }
+
+    private var timeOfDay: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        switch hour { case 0..<12: return "morning"; case 12..<17: return "afternoon"; default: return "evening" }
+    }
+
+    private var loyaltyCard: some View {
+        let tier = session.profile.loyaltyAccount.tier
+        return HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(session.profile.loyaltyAccount.points) pts")
+                    .font(.system(size: accessibility.dynamicFontSize + 4, weight: .bold))
+                Text(tier.rawValue + " Member")
+                    .font(.system(size: accessibility.dynamicFontSize - 2)).foregroundStyle(.secondary)
+                if let next = session.profile.loyaltyAccount.pointsToNextTier {
+                    Text("\(next) pts to next tier")
+                        .font(.system(size: accessibility.dynamicFontSize - 4)).foregroundStyle(.tertiary)
+                }
+            }
+            Spacer()
+            Image(systemName: "trophy.fill").font(.system(size: 36)).foregroundStyle(tierColor(tier))
+        }
+        .padding()
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Loyalty: \(session.profile.loyaltyAccount.points) points, \(tier.rawValue) tier")
+    }
+
+    private func tierColor(_ tier: LoyaltyTier) -> Color {
+        switch tier { case .bronze: return .brown; case .silver: return .gray; case .gold: return .yellow; case .platinum: return .purple }
+    }
+
+    private var quickActions: some View {
+        VStack(spacing: 12) {
+            Button {
+                AudioManager.shared.playSplingDing()
+                HapticManager.shared.impact(.medium)
+                nfcManager.startSession()
+                accessibility.announceForVoiceOver("Starting NFC scan. Hold your phone near the terminal.")
+            } label: {
+                HStack {
+                    Image(systemName: nfcManager.isScanning ? "wave.3.right.circle.fill" : "wave.3.right.circle")
+                        .font(.system(size: 28))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(nfcManager.isScanning ? "Scanning…" : "Tap to Order")
+                            .font(.system(size: accessibility.dynamicFontSize + 2, weight: .semibold))
+                        Text("Hold near NFC terminal")
+                            .font(.system(size: accessibility.dynamicFontSize - 4)).opacity(0.8)
+                    }
+                    Spacer()
+                }
+                .padding().frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(nfcManager.isScanning)
+            .accessibilityLabel("Tap to start NFC order")
+            .accessibilityHint("Hold your iPhone near a Spling terminal")
+
+            HStack(spacing: 12) {
+                ActionButton(title: "Saved Orders", icon: "star.fill",    color: .orange) { showSavedOrders = true }
+                ActionButton(title: "Order Queue",  icon: "list.number",  color: .purple) { showOrderPrioritization = true }
+            }
+
+            Button { showAIMenuEntry = true } label: {
+                HStack {
+                    Image(systemName: "brain.head.profile").font(.system(size: 22))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Add Vendor by Website")
+                            .font(.system(size: accessibility.dynamicFontSize, weight: .semibold))
+                        Text("AI reads any restaurant menu automatically")
+                            .font(.system(size: accessibility.dynamicFontSize - 4)).opacity(0.8)
+                    }
+                    Spacer()
+                    Image(systemName: "sparkles").foregroundStyle(.yellow)
+                }
+                .padding().frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered).tint(.blue)
+            .accessibilityLabel("Add a vendor by entering their website URL. AI will extract the menu.")
+        }
+    }
+
+    private var caretakerSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Caretaker Mode", systemImage: "person.2.fill")
+                .font(.system(size: accessibility.dynamicFontSize - 1, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Button { showCaretakerSetup = true } label: {
+                HStack {
+                    Image(systemName: "plus.circle.fill")
+                    Text("Set Up Order for User").font(.system(size: accessibility.dynamicFontSize))
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered).tint(.green)
+            .accessibilityLabel("Set up an order for the person you care for")
+        }
+        .padding()
+        .background(.green.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var savedOrdersSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if !session.profile.savedOrders.isEmpty {
+                Text("Quick Reorder")
+                    .font(.system(size: accessibility.dynamicFontSize - 1, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                ForEach(session.profile.savedOrders.prefix(3)) { saved in
+                    SavedOrderRowView(saved: saved) {
+                        cart.loadFromSavedOrder(saved)
+                        showVendorMenu = true
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Action Button
+
+struct ActionButton: View {
+    let title:  String
+    let icon:   String
+    let color:  Color
+    let action: () -> Void
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                Image(systemName: icon)
+                Text(title).font(.system(size: accessibility.dynamicFontSize - 1, weight: .medium))
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered).tint(color)
+    }
+}
+
+// MARK: - Saved Order Row
+
+struct SavedOrderRowView: View {
+    let saved: SavedOrder
+    let onTap: () -> Void
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+    var body: some View {
+        Button(action: onTap) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(saved.name)
+                            .font(.system(size: accessibility.dynamicFontSize - 1, weight: .semibold))
+                        if saved.createdByCaretaker {
+                            Image(systemName: "person.2.fill").font(.caption2).foregroundStyle(.green)
+                        }
+                    }
+                    Text("\(saved.vendorName) · \(saved.items.count) item\(saved.items.count == 1 ? "" : "s")")
+                        .font(.system(size: accessibility.dynamicFontSize - 4)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "arrow.right.circle.fill").foregroundStyle(.blue)
+            }
+            .padding()
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(saved.name) from \(saved.vendorName). \(saved.createdByCaretaker ? "Set up by caretaker." : "")")
+    }
+}
+
+// MARK: - Vendor Menu View
+
+struct VendorMenuView: View {
+    let vendor:             Vendor
+    let terminal:           Terminal?
+    let orderHistory:       [SavedOrder]
+    let personalizedOffers: [String]
+
+    @EnvironmentObject var cart:          CartViewModel
+    @EnvironmentObject var session:       UserSessionViewModel
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+    @StateObject private var reviewVM = ReviewViewModel()
+
+    @State private var showCheckout    = false
+    @State private var showReviews     = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                if let terminal { terminalBanner(terminal) }
+                if !personalizedOffers.isEmpty { offersSection }
+                if !orderHistory.isEmpty        { orderHistorySection }
+
+                // Review summary teaser
+                reviewSummaryTeaser
+
+                // Menu
+                ForEach(vendor.menuCategories) { category in
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(category.name)
+                            .font(.system(size: accessibility.dynamicFontSize + 2, weight: .bold))
+                            .padding(.horizontal)
+                        ForEach(category.items) { item in MenuItemRowView(item: item) }
+                    }
+                }
+            }
+            .padding(.vertical)
+        }
+        .navigationTitle(vendor.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button { showCheckout = true } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "bag.fill")
+                        if cart.itemCount > 0 { Text("\(cart.itemCount)").font(.caption.bold()) }
+                    }
+                }
+                .disabled(cart.isEmpty)
+                .accessibilityLabel("View cart with \(cart.itemCount) items")
+            }
+        }
+        .navigationDestination(isPresented: $showCheckout) { CheckoutView(vendor: vendor) }
+        .navigationDestination(isPresented: $showReviews) {
+            VendorReviewsView(vendorID: vendor.id, vendorName: vendor.name)
+        }
+        .task { await reviewVM.loadReviews(vendorID: vendor.id) }
+    }
+
+    @ViewBuilder
+    private func terminalBanner(_ terminal: Terminal) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: terminal.type.systemImage).font(.system(size: 22)).foregroundStyle(.blue)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(terminal.label).font(.system(size: accessibility.dynamicFontSize - 1, weight: .semibold))
+                if terminal.queueLength > 0 {
+                    Text("\(terminal.queueLength) order\(terminal.queueLength == 1 ? "" : "s") ahead")
+                        .font(.system(size: accessibility.dynamicFontSize - 4)).foregroundStyle(.secondary)
+                } else {
+                    Text("No queue — order now").font(.system(size: accessibility.dynamicFontSize - 4)).foregroundStyle(.green)
+                }
+            }
+            Spacer()
+            if !terminal.isAcceptingOrders {
+                Label("Offline", systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
+            }
+        }
+        .padding()
+        .background(.blue.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal)
+    }
+
+    private var offersSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Offers for You", systemImage: "tag.fill")
+                .font(.system(size: accessibility.dynamicFontSize - 1, weight: .semibold)).foregroundStyle(.orange).padding(.horizontal)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(personalizedOffers, id: \.self) { offer in
+                        Text(offer)
+                            .font(.system(size: accessibility.dynamicFontSize - 3))
+                            .padding(.horizontal, 12).padding(.vertical, 8)
+                            .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+
+    private var orderHistorySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Reorder from Previous Visit", systemImage: "clock.arrow.circlepath")
+                .font(.system(size: accessibility.dynamicFontSize - 1, weight: .semibold)).foregroundStyle(.secondary).padding(.horizontal)
+            ForEach(orderHistory.prefix(3)) { saved in
+                SavedOrderRowView(saved: saved) {
+                    cart.loadFromSavedOrder(saved)
+                    showCheckout = true
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+
+    private var reviewSummaryTeaser: some View {
+        Button { showReviews = true } label: {
+            HStack(spacing: 12) {
+                if let summary = reviewVM.reviewSummary {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 4) {
+                            Text(summary.formattedAverage)
+                                .font(.system(size: accessibility.dynamicFontSize + 2, weight: .bold))
+                            Text(summary.starDisplay).foregroundStyle(.yellow)
+                        }
+                        Text("\(summary.totalReviews) verified review\(summary.totalReviews == 1 ? "" : "s")")
+                            .font(.system(size: accessibility.dynamicFontSize - 4)).foregroundStyle(.secondary)
+                    }
+                } else if reviewVM.isLoadingReviews {
+                    ProgressView().tint(.secondary)
+                    Text("Loading reviews…").font(.system(size: accessibility.dynamicFontSize - 3)).foregroundStyle(.secondary)
+                } else {
+                    Image(systemName: "star.bubble").foregroundStyle(.secondary)
+                    Text("See customer reviews").font(.system(size: accessibility.dynamicFontSize - 2)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").foregroundStyle(.secondary).font(.caption)
+            }
+            .padding()
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Menu Item Row View
+
+struct MenuItemRowView: View {
+    let item: MenuItem
+    @EnvironmentObject var cart:          CartViewModel
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.name).font(.system(size: accessibility.dynamicFontSize, weight: .semibold))
+                Text(item.description).font(.system(size: accessibility.dynamicFontSize - 3)).foregroundStyle(.secondary)
+                if let cal = item.calories { Text("\(cal) cal").font(.system(size: accessibility.dynamicFontSize - 5)).foregroundStyle(.tertiary) }
+                Text(item.formattedPrice).font(.system(size: accessibility.dynamicFontSize - 1, weight: .semibold)).foregroundStyle(.blue)
+            }
+            Spacer()
+            Button {
+                cart.add(item)
+                HapticManager.shared.impact(.light)
+            } label: {
+                Image(systemName: "plus.circle.fill").font(.system(size: 28)).foregroundStyle(.blue)
+            }
+            .accessibilityLabel("Add \(item.name) to cart")
+        }
+        .padding(.horizontal).padding(.vertical, 8)
+        .background(Color(.systemBackground))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: - Checkout View
+
+struct CheckoutView: View {
+    let vendor: Vendor
+    @EnvironmentObject var cart:          CartViewModel
+    @EnvironmentObject var session:       UserSessionViewModel
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+    @StateObject private var orderVM     = OrderViewModel()
+    @State private var selectedPayment:  PaymentMethod?
+    @State private var showReceipt       = false
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                orderItemsSection
+                Divider()
+                if let terminalType = cart.activeTerminalType {
+                    terminalContextRow(terminalType)
+                    Divider()
+                }
+                paymentSection
+                Divider()
+                totalSection
+                if let error = orderVM.errorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                        .font(.system(size: accessibility.dynamicFontSize - 2))
+                        .multilineTextAlignment(.center)
+                }
+                placeOrderButton
+            }
+            .padding()
+        }
+        .navigationTitle("Checkout")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(isPresented: $showReceipt) {
+            if let receipt = orderVM.receipt {
+                ReceiptView(receipt: receipt, posAcknowledgement: orderVM.posAcknowledgement)
+            }
+        }
+        .onChange(of: orderVM.orderState) { _, state in
+            if case .completed = state {
+                if let order = orderVM.receipt?.order {
+                    session.addPoints(for: order)
+                    session.addToHistory(order)
+                }
+                cart.clear()
+                showReceipt = true
+            }
+        }
+    }
+
+    private var orderItemsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Your Order").font(.system(size: accessibility.dynamicFontSize + 2, weight: .bold))
+            ForEach(cart.items) { item in
+                HStack {
+                    Text("\(item.quantity)×").foregroundStyle(.secondary)
+                    Text(item.menuItem.name)
+                    Spacer()
+                    Text(String(format: "$%.2f", Double(item.subtotalCents) / 100.0))
+                }
+                .font(.system(size: accessibility.dynamicFontSize - 1))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func terminalContextRow(_ terminalType: TerminalType) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: terminalType.systemImage).foregroundStyle(.blue)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(terminalType.rawValue).font(.system(size: accessibility.dynamicFontSize - 1, weight: .semibold))
+                Text("Order type set automatically from NFC tap").font(.system(size: accessibility.dynamicFontSize - 4)).foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+    }
+
+    private var paymentSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Payment").font(.system(size: accessibility.dynamicFontSize, weight: .semibold))
+            let methods: [PaymentMethod] = [
+                .applePay,
+                .creditCard(last4: "4242", brand: "Visa"),
+                .splingWallet(balance: 1250)
+            ]
+            ForEach(methods) { method in
+                Button {
+                    selectedPayment = method
+                    HapticManager.shared.selection()
+                } label: {
+                    HStack {
+                        Image(systemName: method.systemImage)
+                        Text(method.displayName).font(.system(size: accessibility.dynamicFontSize - 1))
+                        Spacer()
+                        if selectedPayment?.id == method.id {
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(.blue)
+                        }
+                    }
+                    .padding(12)
+                    .background(
+                        selectedPayment?.id == method.id ? Color.blue.opacity(0.1) : Color(.secondarySystemBackground),
+                        in: RoundedRectangle(cornerRadius: 10)
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(method.displayName)
+                .accessibilityAddTraits(selectedPayment?.id == method.id ? .isSelected : [])
+            }
+        }
+    }
+
+    private var totalSection: some View {
+        HStack {
+            Text("Total").font(.system(size: accessibility.dynamicFontSize + 2, weight: .bold))
+            Spacer()
+            Text(cart.formattedTotal).font(.system(size: accessibility.dynamicFontSize + 2, weight: .bold)).foregroundStyle(.blue)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Total: \(cart.formattedTotal)")
+    }
+
+    private var placeOrderButton: some View {
+        Button {
+            guard let payment = selectedPayment else { return }
+            HapticManager.shared.impact()
+            let order = cart.asOrder()
+            Task { await orderVM.submit(order: order, paymentMethod: payment, posInfo: vendor.posInfo) }
+        } label: {
+            Group {
+                switch orderVM.orderState {
+                case .submitting:        ProgressView("Submitting order…").tint(.white)
+                case .processingPayment: ProgressView("Processing payment…").tint(.white)
+                case .routingToPOS:      ProgressView("Sending to kitchen…").tint(.white)
+                default:
+                    Text("Place Order · \(cart.formattedTotal)")
+                        .font(.system(size: accessibility.dynamicFontSize, weight: .semibold))
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .disabled(
+            selectedPayment == nil || cart.isEmpty ||
+            orderVM.orderState == .submitting ||
+            orderVM.orderState == .processingPayment ||
+            orderVM.orderState == .routingToPOS
+        )
+        .accessibilityLabel("Place order for \(cart.formattedTotal)")
+        .accessibilityHint(selectedPayment == nil ? "Select a payment method first" : "")
+    }
+}
+
+// MARK: - Receipt View
+
+struct ReceiptView: View {
+    let receipt:            Receipt
+    let posAcknowledgement: POSAcknowledgement?
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+    @EnvironmentObject var session:       UserSessionViewModel
+    @State private var showReview = false
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                VStack(spacing: 12) {
+                    Image(systemName: "checkmark.seal.fill").font(.system(size: 60)).foregroundStyle(.green)
+                    Text("Order Confirmed!").font(.system(size: accessibility.dynamicFontSize + 8, weight: .bold))
+                    Text("Your order is being prepared.").foregroundStyle(.secondary).font(.system(size: accessibility.dynamicFontSize))
+                }
+                .padding()
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Order confirmed. Your order at \(receipt.vendorName) is being prepared.")
+
+                if let ack = posAcknowledgement { posAckCard(ack) }
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(receipt.vendorName).font(.system(size: accessibility.dynamicFontSize + 2, weight: .bold))
+                    ForEach(receipt.order.items) { item in
+                        HStack {
+                            Text("\(item.quantity)× \(item.menuItem.name)")
+                            Spacer()
+                            Text(String(format: "$%.2f", Double(item.subtotalCents) / 100.0)).foregroundStyle(.secondary)
+                        }
+                        .font(.system(size: accessibility.dynamicFontSize - 1))
+                    }
+                    Divider()
+                    HStack {
+                        Text("Total").font(.system(size: accessibility.dynamicFontSize, weight: .bold))
+                        Spacer()
+                        Text(receipt.order.formattedTotal).font(.system(size: accessibility.dynamicFontSize, weight: .bold))
+                    }
+                }
+                .padding(.horizontal)
+
+                if let terminalType = receipt.order.terminalType {
+                    Label("Ordered via \(terminalType.rawValue)", systemImage: terminalType.systemImage)
+                        .font(.system(size: accessibility.dynamicFontSize - 3)).foregroundStyle(.secondary)
+                }
+                if receipt.pointsEarned > 0 {
+                    Label("You earned \(receipt.pointsEarned) Spling points!", systemImage: "star.fill")
+                        .font(.system(size: accessibility.dynamicFontSize - 1)).foregroundStyle(.orange)
+                }
+
+                // Review CTA — only show if not already reviewed
+                if !session.hasReviewed(orderID: receipt.order.id) {
+                    Button("Leave a Review") { showReview = true }
+                        .buttonStyle(.borderedProminent).tint(.purple).padding(.horizontal)
+                        .accessibilityLabel("Leave a review for \(receipt.vendorName)")
+                }
+            }
+            .padding()
+        }
+        .navigationTitle("Receipt")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .sheet(isPresented: $showReview) {
+            WriteReviewView(order: receipt.order)
+                .environmentObject(accessibility)
+                .environmentObject(session)
+        }
+    }
+
+    @ViewBuilder
+    private func posAckCard(_ ack: POSAcknowledgement) -> some View {
+        HStack(spacing: 24) {
+            VStack(spacing: 4) {
+                Text(ack.pickupReference).font(.system(size: accessibility.dynamicFontSize + 14, weight: .bold)).foregroundStyle(.blue)
+                Text("Pickup Code").font(.system(size: accessibility.dynamicFontSize - 4)).foregroundStyle(.secondary)
+            }
+            Divider().frame(height: 50)
+            VStack(spacing: 4) {
+                Text("#\(ack.queuePosition)").font(.system(size: accessibility.dynamicFontSize + 10, weight: .bold))
+                Text("Queue Position").font(.system(size: accessibility.dynamicFontSize - 4)).foregroundStyle(.secondary)
+            }
+            Divider().frame(height: 50)
+            VStack(spacing: 4) {
+                Text("~\(ack.estimatedReadyMinutes) min").font(.system(size: accessibility.dynamicFontSize + 4, weight: .semibold))
+                Text("Est. Ready").font(.system(size: accessibility.dynamicFontSize - 4)).foregroundStyle(.secondary)
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity)
+        .background(.blue.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
+        .padding(.horizontal)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Pickup code \(ack.pickupReference). Queue position \(ack.queuePosition). Ready in about \(ack.estimatedReadyMinutes) minutes.")
+    }
+}
+
+// MARK: - Write Review View
+
+struct WriteReviewView: View {
+    let order: Order
+    @StateObject private var vm = ReviewViewModel()
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+    @EnvironmentObject var session:       UserSessionViewModel
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 24) {
+                    // Header
+                    VStack(spacing: 6) {
+                        Image(systemName: "star.bubble.fill").font(.system(size: 44)).foregroundStyle(.purple)
+                        Text("Review \(order.vendorName)")
+                            .font(.system(size: accessibility.dynamicFontSize + 4, weight: .bold))
+                        Text("Your verified order review helps others make better choices.")
+                            .font(.system(size: accessibility.dynamicFontSize - 3)).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.top)
+
+                    // Star rating
+                    VStack(spacing: 8) {
+                        Text("Overall Rating")
+                            .font(.system(size: accessibility.dynamicFontSize - 1, weight: .semibold)).foregroundStyle(.secondary)
+                        HStack(spacing: 16) {
+                            ForEach(1...5, id: \.self) { star in
+                                Button {
+                                    vm.rating = star
+                                    HapticManager.shared.selection()
+                                } label: {
+                                    Image(systemName: star <= vm.rating ? "star.fill" : "star")
+                                        .font(.system(size: 36))
+                                        .foregroundStyle(star <= vm.rating ? .yellow : .gray)
+                                }
+                                .accessibilityLabel("\(star) star\(star == 1 ? "" : "s")")
+                                .accessibilityAddTraits(star == vm.rating ? .isSelected : [])
+                            }
+                        }
+                    }
+                    .padding()
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+
+                    // Title
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Review Title", systemImage: "text.cursor")
+                            .font(.system(size: accessibility.dynamicFontSize - 2, weight: .semibold)).foregroundStyle(.secondary)
+                        TextField("Summarise your experience", text: $vm.title)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: accessibility.dynamicFontSize))
+                            .accessibilityLabel("Review title")
+                    }
+
+                    // Body
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Label("Your Review", systemImage: "square.and.pencil")
+                                .font(.system(size: accessibility.dynamicFontSize - 2, weight: .semibold)).foregroundStyle(.secondary)
+                            Spacer()
+                            Text("\(vm.characterCount)/\(AppConfig.Reviews.maxBodyLength)")
+                                .font(.system(size: accessibility.dynamicFontSize - 4))
+                                .foregroundStyle(vm.isOverLimit ? .red : .tertiary)
+                        }
+                        TextField("Tell others what was great (or not) about your order…",
+                                  text: $vm.body, axis: .vertical)
+                            .textFieldStyle(.roundedBorder)
+                            .lineLimit(4...8)
+                            .font(.system(size: accessibility.dynamicFontSize))
+                            .accessibilityLabel("Review body")
+                        if vm.isOverLimit {
+                            Text("Too long — please shorten your review.")
+                                .font(.caption).foregroundStyle(.red)
+                        }
+                    }
+
+                    // Anonymous toggle
+                    Toggle(isOn: $vm.isAnonymous) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Post Anonymously")
+                                .font(.system(size: accessibility.dynamicFontSize - 1, weight: .medium))
+                            Text("Your name won't appear on this review.")
+                                .font(.system(size: accessibility.dynamicFontSize - 4)).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding()
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+
+                    // Verified badge info
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
+                        Text("This review will be marked as a **verified order** because it's linked to your actual purchase.")
+                            .font(.system(size: accessibility.dynamicFontSize - 4)).foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal)
+
+                    // Submit
+                    Group {
+                        switch vm.state {
+                        case .idle, .failed:
+                            Button {
+                                Task {
+                                    await vm.submitReview(
+                                        order:       order,
+                                        authorName:  session.profile.displayName.isEmpty ? "Spling User" : session.profile.displayName,
+                                        sessionVM:   session
+                                    )
+                                }
+                            } label: {
+                                Text("Submit Review")
+                                    .font(.system(size: accessibility.dynamicFontSize, weight: .semibold))
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.purple)
+                            .controlSize(.large)
+                            .disabled(!vm.canSubmit)
+
+                        case .submitting:
+                            ProgressView("Submitting review…")
+                                .frame(maxWidth: .infinity)
+
+                        case .submitted:
+                            VStack(spacing: 10) {
+                                Label("Review submitted!", systemImage: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                    .font(.system(size: accessibility.dynamicFontSize, weight: .semibold))
+                                Text("Thank you for helping the community.")
+                                    .font(.system(size: accessibility.dynamicFontSize - 3)).foregroundStyle(.secondary)
+                            }
+                            .onAppear {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { dismiss() }
+                            }
+                        }
+                    }
+
+                    if case .failed(let msg) = vm.state {
+                        Text(msg).foregroundStyle(.red).font(.caption).multilineTextAlignment(.center)
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("Write a Review")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Vendor Reviews View
+
+struct VendorReviewsView: View {
+    let vendorID:   String
+    let vendorName: String
+    @StateObject private var vm = ReviewViewModel()
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+
+    var body: some View {
+        Group {
+            if vm.isLoadingReviews {
+                ProgressView("Loading reviews…").frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if vm.vendorReviews.isEmpty {
+                ContentUnavailableView(
+                    "No Reviews Yet",
+                    systemImage: "star.slash",
+                    description: Text("Be the first to review \(vendorName) after your order.")
+                )
+            } else {
+                ScrollView {
+                    VStack(spacing: 16) {
+                        if let summary = vm.reviewSummary { reviewSummaryCard(summary) }
+                        ForEach(vm.vendorReviews) { review in
+                            ReviewCardView(review: review) {
+                                Task { await vm.markHelpful(review: review) }
+                            }
+                        }
+                    }
+                    .padding()
+                }
+            }
+        }
+        .navigationTitle("\(vendorName) Reviews")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await vm.loadReviews(vendorID: vendorID) }
+    }
+
+    private func reviewSummaryCard(_ summary: VendorReviewSummary) -> some View {
+        VStack(spacing: 12) {
+            HStack(alignment: .center, spacing: 20) {
+                VStack(spacing: 4) {
+                    Text(summary.formattedAverage)
+                        .font(.system(size: 48, weight: .bold, design: .rounded))
+                    Text(summary.starDisplay).foregroundStyle(.yellow).font(.title2)
+                    Text("\(summary.totalReviews) review\(summary.totalReviews == 1 ? "" : "s")")
+                        .font(.system(size: accessibility.dynamicFontSize - 3)).foregroundStyle(.secondary)
+                }
+                Divider().frame(height: 80)
+                VStack(spacing: 4) {
+                    ForEach([5,4,3,2,1], id: \.self) { star in
+                        HStack(spacing: 6) {
+                            Text("\(star)").font(.caption2).frame(width: 10)
+                            GeometryReader { geo in
+                                let count  = summary.distribution[star] ?? 0
+                                let ratio  = summary.totalReviews > 0 ? Double(count) / Double(summary.totalReviews) : 0
+                                ZStack(alignment: .leading) {
+                                    RoundedRectangle(cornerRadius: 4).fill(Color(.systemGray5)).frame(height: 8)
+                                    RoundedRectangle(cornerRadius: 4).fill(Color.yellow).frame(width: geo.size.width * ratio, height: 8)
+                                }
+                            }
+                            .frame(height: 8)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .padding()
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(summary.formattedAverage) out of 5 stars from \(summary.totalReviews) reviews")
+    }
+}
+
+// MARK: - Review Card View
+
+struct ReviewCardView: View {
+    let review:        Review
+    let onMarkHelpful: () -> Void
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(review.title)
+                        .font(.system(size: accessibility.dynamicFontSize - 1, weight: .semibold))
+                    HStack(spacing: 2) {
+                        ForEach(1...5, id: \.self) { star in
+                            Image(systemName: star <= review.rating ? "star.fill" : "star")
+                                .font(.system(size: 12))
+                                .foregroundStyle(star <= review.rating ? .yellow : .gray)
+                        }
+                    }
+                }
+                Spacer()
+                if review.isVerifiedOrder {
+                    Label("Verified", systemImage: "checkmark.seal.fill")
+                        .font(.system(size: accessibility.dynamicFontSize - 5, weight: .medium))
+                        .foregroundStyle(.green)
+                }
+            }
+
+            Text(review.body)
+                .font(.system(size: accessibility.dynamicFontSize - 2))
+                .foregroundStyle(.primary)
+                .lineLimit(6)
+
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(review.authorName)
+                        .font(.system(size: accessibility.dynamicFontSize - 4, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Text(review.createdAt, style: .date)
+                        .font(.system(size: accessibility.dynamicFontSize - 5))
+                        .foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Button {
+                    onMarkHelpful()
+                    HapticManager.shared.impact(.light)
+                } label: {
+                    Label("\(review.helpfulCount) helpful", systemImage: "hand.thumbsup")
+                        .font(.system(size: accessibility.dynamicFontSize - 4))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+            }
+        }
+        .padding()
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(review.title). \(review.rating) stars. \(review.body). By \(review.authorName). \(review.isVerifiedOrder ? "Verified order." : "")")
+    }
+}
+
+// MARK: - Saved Orders View
+
+struct SavedOrdersView: View {
+    @EnvironmentObject var session:       UserSessionViewModel
+    @EnvironmentObject var cart:          CartViewModel
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+    @State private var showMenu = false
+
+    var body: some View {
+        Group {
+            if session.profile.savedOrders.isEmpty {
+                ContentUnavailableView(
+                    "No Saved Orders",
+                    systemImage: "star.slash",
+                    description: Text("Save an order from the checkout screen to reorder quickly.")
+                )
+            } else {
+                List {
+                    ForEach(session.profile.savedOrders) { saved in
+                        SavedOrderRowView(saved: saved) {
+                            cart.loadFromSavedOrder(saved)
+                            showMenu = true
+                        }
+                        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                        .listRowBackground(Color.clear)
+                    }
+                    .onDelete { indexSet in
+                        indexSet.map { session.profile.savedOrders[$0].id }.forEach {
+                            session.deleteSavedOrder(id: $0)
+                        }
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
+        .navigationTitle("Saved Orders")
+        .navigationDestination(isPresented: $showMenu) {
+            if !cart.vendorName.isEmpty {
+                // In production load full VendorMenuView; for now show a placeholder
+                Text("Menu for \(cart.vendorName)")
+            }
+        }
+    }
+}
+
+// MARK: - Caretaker Setup View
+
+struct CaretakerSetupView: View {
+    @EnvironmentObject var session:       UserSessionViewModel
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+    @State private var orderName  = ""
+    @State private var vendorID   = ""
+    @State private var vendorName = ""
+    @State private var isSaved    = false
+
+    var body: some View {
+        Form {
+            Section(header: Text("Order Details").font(.system(size: accessibility.dynamicFontSize - 2))) {
+                TextField("Order name (e.g. 'Lunch at Tim Hortons')", text: $orderName)
+                    .font(.system(size: accessibility.dynamicFontSize))
+                TextField("Vendor name", text: $vendorName)
+                    .font(.system(size: accessibility.dynamicFontSize))
+            }
+            Section(header: Text("About Caretaker Mode").font(.system(size: accessibility.dynamicFontSize - 2))) {
+                Text("Set up an order in advance. The person you care for can then confirm and transmit via NFC.")
+                    .font(.system(size: accessibility.dynamicFontSize - 2)).foregroundStyle(.secondary)
+            }
+            Section {
+                Button("Save Order for User") {
+                    guard !orderName.isEmpty, !vendorName.isEmpty else { return }
+                    let saved = SavedOrder(
+                        name:               orderName,
+                        vendorID:           vendorID.isEmpty ? UUID().uuidString : vendorID,
+                        vendorName:         vendorName,
+                        items:              [],
+                        createdByCaretaker: true
+                    )
+                    session.saveOrder(saved)
+                    HapticManager.shared.notification(.success)
+                    isSaved = true
+                }
+                .disabled(orderName.isEmpty || vendorName.isEmpty)
+            }
+            if isSaved {
+                Section {
+                    Label("Order saved successfully!", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .font(.system(size: accessibility.dynamicFontSize - 1))
+                }
+            }
+        }
+        .navigationTitle("Caretaker Setup")
+    }
+}
+
+// MARK: - Accessibility Settings View
+
+struct AccessibilitySettingsView: View {
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+    @EnvironmentObject var session:       UserSessionViewModel
+
+    var body: some View {
+        Form {
+            Section("Voice & Audio") {
+                Toggle("Voice Guidance",   isOn: $accessibility.settings.voiceGuidanceEnabled)
+                Toggle("Haptic Feedback",  isOn: $accessibility.settings.hapticFeedbackEnabled)
+            }
+            Section("Visual") {
+                Toggle("High Contrast",    isOn: $accessibility.settings.highContrastEnabled)
+                Toggle("Reduce Motion",    isOn: $accessibility.settings.reducedMotionEnabled)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Text Size: \(Int(accessibility.settings.fontSize))pt")
+                    Slider(
+                        value: $accessibility.settings.fontSize,
+                        in:    AppConfig.Accessibility.minimumTextSize...AppConfig.Accessibility.maximumTextSize,
+                        step:  1
+                    )
+                }
+            }
+            Section("Caretaker Mode") {
+                Toggle("Enable Caretaker Mode", isOn: $accessibility.settings.caretakerModeEnabled)
+                if accessibility.settings.caretakerModeEnabled {
+                    TextField("Caretaker name", text: $accessibility.settings.caretakerName)
+                }
+            }
+            Section {
+                Button("Reset to Defaults", role: .destructive) { accessibility.resetToDefaults() }
+            }
+        }
+        .navigationTitle("Accessibility")
+    }
+}
+
+// MARK: - Order Prioritization View
+
+struct OrderPrioritizationView: View {
+    @StateObject private var vm = OrderPrioritizationViewModel()
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+
+    var body: some View {
+        VStack {
+            if vm.prioritizedOrders.isEmpty {
+                ContentUnavailableView(
+                    "No Active Orders",
+                    systemImage: "tray",
+                    description: Text("Add sample orders to see how AI prioritization works.")
+                )
+            } else {
+                List(vm.prioritizedOrders) { order in
+                    HStack(spacing: 12) {
+                        Image(systemName: order.channel.systemImage).frame(width: 24).foregroundStyle(.blue)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text(order.channel.rawValue)
+                                    .font(.system(size: accessibility.dynamicFontSize - 1, weight: .semibold))
+                                if order.placedByCaretaker {
+                                    Image(systemName: "figure.roll").font(.caption).foregroundStyle(.green)
+                                }
+                            }
+                            Text(order.placedAt, style: .time)
+                                .font(.system(size: accessibility.dynamicFontSize - 4)).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        priorityLabel(order.channel.priority)
+                    }
+                }
+                .listStyle(.plain)
+            }
+            HStack(spacing: 12) {
+                Button("Add Samples") { vm.addSampleOrders() }.buttonStyle(.borderedProminent)
+                if !vm.orders.isEmpty {
+                    Button("Clear", role: .destructive) { vm.orders.removeAll() }.buttonStyle(.bordered)
+                }
+            }
+            .padding()
+        }
+        .navigationTitle("Order Queue")
+    }
+
+    private func priorityLabel(_ priority: Int) -> some View {
+        let (label, color): (String, Color) = switch priority {
+        case 0: ("High",   .red)
+        case 1: ("Medium", .orange)
+        default: ("Low",   .green)
+        }
+        return Text(label)
+            .font(.system(size: accessibility.dynamicFontSize - 5, weight: .bold))
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(color.opacity(0.15))
+            .foregroundStyle(color)
+            .clipShape(Capsule())
+    }
+}
+
+// MARK: - Order History View
+
+struct OrderHistoryView: View {
+    @EnvironmentObject var session:       UserSessionViewModel
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+
+    var body: some View {
+        Group {
+            if session.profile.orderHistory.isEmpty {
+                ContentUnavailableView("No Orders Yet", systemImage: "bag",
+                    description: Text("Your completed orders will appear here."))
+            } else {
+                List(session.profile.orderHistory) { order in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(order.vendorName)
+                                .font(.system(size: accessibility.dynamicFontSize, weight: .semibold))
+                            Spacer()
+                            Text(order.formattedTotal)
+                                .font(.system(size: accessibility.dynamicFontSize - 1)).foregroundStyle(.secondary)
+                        }
+                        HStack(spacing: 8) {
+                            Label(order.channel.rawValue, systemImage: order.channel.systemImage)
+                                .font(.system(size: accessibility.dynamicFontSize - 4)).foregroundStyle(.secondary)
+                            Text("·")
+                            Text(order.placedAt, style: .date)
+                                .font(.system(size: accessibility.dynamicFontSize - 4)).foregroundStyle(.secondary)
+                        }
+                        HStack(spacing: 6) {
+                            Text(order.status.rawValue)
+                                .font(.system(size: accessibility.dynamicFontSize - 5, weight: .medium))
+                                .foregroundStyle(.green)
+                            if session.hasReviewed(orderID: order.id) {
+                                Label("Reviewed", systemImage: "star.fill")
+                                    .font(.system(size: accessibility.dynamicFontSize - 6))
+                                    .foregroundStyle(.purple)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+        .navigationTitle("Order History")
+    }
+}
+
+// MARK: - Loyalty View
+
+struct LoyaltyView: View {
+    @EnvironmentObject var session:       UserSessionViewModel
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+    var account: LoyaltyAccount { session.profile.loyaltyAccount }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                VStack(spacing: 8) {
+                    Image(systemName: "trophy.fill").font(.system(size: 64)).foregroundStyle(tierColor(account.tier))
+                    Text(account.tier.rawValue).font(.system(size: accessibility.dynamicFontSize + 10, weight: .bold))
+                    Text("\(account.points) points").font(.system(size: accessibility.dynamicFontSize + 2)).foregroundStyle(.secondary)
+                    if let next = account.pointsToNextTier {
+                        Text("\(next) points to next tier").font(.system(size: accessibility.dynamicFontSize - 2)).foregroundStyle(.tertiary)
+                        ProgressView(
+                            value: Double(account.points - account.tier.minimumPoints),
+                            total: Double(next + account.points - account.tier.minimumPoints)
+                        )
+                        .padding(.horizontal, 40)
+                    }
+                }
+                .padding()
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(account.tier.rawValue) member with \(account.points) points")
+
+                Divider()
+
+                if account.transactions.isEmpty {
+                    Text("Earn points by placing orders through Spling.")
+                        .foregroundStyle(.secondary).font(.system(size: accessibility.dynamicFontSize - 2))
+                        .multilineTextAlignment(.center).padding()
+                } else {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Recent Activity").font(.system(size: accessibility.dynamicFontSize, weight: .bold)).padding(.horizontal)
+                        ForEach(account.transactions) { tx in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(tx.vendorName).font(.system(size: accessibility.dynamicFontSize - 1))
+                                    Text(tx.date, style: .date).font(.system(size: accessibility.dynamicFontSize - 4)).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text("+\(tx.pointsEarned) pts").font(.system(size: accessibility.dynamicFontSize - 1, weight: .semibold)).foregroundStyle(.orange)
+                            }
+                            .padding(.horizontal)
+                        }
+                    }
+                }
+            }
+            .padding(.vertical)
+        }
+        .navigationTitle("Rewards")
+    }
+
+    private func tierColor(_ tier: LoyaltyTier) -> Color {
+        switch tier { case .bronze: return .brown; case .silver: return .gray; case .gold: return .yellow; case .platinum: return .purple }
+    }
+}
+
+// MARK: - Profile View
+
+struct ProfileView: View {
+    @EnvironmentObject var session:       UserSessionViewModel
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+    @State private var showSignOutConfirm = false
+    @State private var showAPIKeyEntry    = false
+    @State private var apiKeyDraft        = ""
+
+    var body: some View {
+        Form {
+            Section("Account") {
+                HStack {
+                    Image(systemName: "person.circle.fill").font(.system(size: 40)).foregroundStyle(.blue)
+                    VStack(alignment: .leading) {
+                        Text(session.profile.displayName.isEmpty ? "Spling User" : session.profile.displayName)
+                            .font(.system(size: accessibility.dynamicFontSize, weight: .semibold))
+                        Text(session.profile.loyaltyAccount.tier.rawValue + " Member")
+                            .foregroundStyle(.secondary).font(.system(size: accessibility.dynamicFontSize - 3))
+                    }
+                }
+            }
+            Section("Accessibility") {
+                NavigationLink(destination: AccessibilitySettingsView()) {
+                    Label("Accessibility Settings", systemImage: "accessibility")
+                }
+            }
+            Section("Orders") {
+                NavigationLink(destination: OrderHistoryView()) {
+                    Label("Order History", systemImage: "bag")
+                }
+                NavigationLink(destination: SavedOrdersView()) {
+                    Label("Saved Orders", systemImage: "star.fill")
+                }
+            }
+            Section("My Reviews") {
+                NavigationLink(destination: MyReviewsView()) {
+                    Label("Reviews I've Written", systemImage: "star.bubble")
+                }
+            }
+            Section("Developer") {
+                Button("Set API Key") { showAPIKeyEntry = true }
+                    .foregroundStyle(.blue)
+            }
+            Section {
+                Button("Sign Out", role: .destructive) { showSignOutConfirm = true }
+            }
+        }
+        .navigationTitle("Profile")
+        .confirmationDialog("Sign out of Spling?", isPresented: $showSignOutConfirm, titleVisibility: .visible) {
+            Button("Sign Out", role: .destructive) { session.signOut() }
+            Button("Cancel", role: .cancel) {}
+        }
+        .alert("Set Anthropic API Key", isPresented: $showAPIKeyEntry) {
+            SecureField("sk-ant-…", text: $apiKeyDraft)
+            Button("Save") {
+                if !apiKeyDraft.isEmpty {
+                    KeychainManager.shared.anthropicAPIKey = apiKeyDraft
+                    apiKeyDraft = ""
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Your key is stored securely in the device Keychain and never leaves this device.")
+        }
+    }
+}
+
+// MARK: - My Reviews View
+
+struct MyReviewsView: View {
+    @EnvironmentObject var session:       UserSessionViewModel
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+
+    var body: some View {
+        Group {
+            if session.profile.reviews.isEmpty {
+                ContentUnavailableView(
+                    "No Reviews Yet",
+                    systemImage: "star.slash",
+                    description: Text("After completing an order you'll be invited to leave a review.")
+                )
+            } else {
+                List(session.profile.reviews) { review in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(review.vendorName).font(.system(size: accessibility.dynamicFontSize - 1, weight: .semibold))
+                            Spacer()
+                            HStack(spacing: 2) {
+                                ForEach(1...5, id: \.self) { star in
+                                    Image(systemName: star <= review.rating ? "star.fill" : "star")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(star <= review.rating ? .yellow : .gray)
+                                }
+                            }
+                        }
+                        Text(review.title).font(.system(size: accessibility.dynamicFontSize - 2, weight: .medium))
+                        Text(review.body).font(.system(size: accessibility.dynamicFontSize - 3)).foregroundStyle(.secondary).lineLimit(3)
+                        HStack {
+                            Text(review.createdAt, style: .date).font(.caption).foregroundStyle(.tertiary)
+                            if review.isVerifiedOrder {
+                                Label("Verified", systemImage: "checkmark.seal.fill").font(.caption2).foregroundStyle(.green)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+        .navigationTitle("My Reviews")
+    }
+}
+
+// MARK: - Rating View (quick post-order star only)
+
+struct RatingView: View {
+    let orderID: UUID
+    @StateObject private var vm = RatingViewModel()
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                Text("How was your order?").font(.system(size: accessibility.dynamicFontSize + 4, weight: .bold))
+                HStack(spacing: 16) {
+                    ForEach(1...5, id: \.self) { star in
+                        Button {
+                            vm.rating = star
+                            HapticManager.shared.selection()
+                        } label: {
+                            Image(systemName: star <= vm.rating ? "star.fill" : "star")
+                                .font(.system(size: 36))
+                                .foregroundStyle(star <= vm.rating ? .yellow : .gray)
+                        }
+                        .accessibilityLabel("\(star) star\(star == 1 ? "" : "s")")
+                        .accessibilityAddTraits(star == vm.rating ? .isSelected : [])
+                    }
+                }
+                TextField("Additional feedback (optional)", text: $vm.feedback, axis: .vertical)
+                    .textFieldStyle(.roundedBorder).lineLimit(3...5)
+                    .font(.system(size: accessibility.dynamicFontSize)).padding(.horizontal)
+                Group {
+                    switch vm.state {
+                    case .idle, .failed:
+                        Button("Submit") { Task { await vm.submit(for: orderID) } }
+                            .buttonStyle(.borderedProminent)
+                    case .submitting:
+                        ProgressView("Submitting…")
+                    case .submitted:
+                        Label("Thanks for your feedback!", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.system(size: accessibility.dynamicFontSize, weight: .semibold))
+                            .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { dismiss() } }
+                    }
+                }
+                if case .failed(let msg) = vm.state {
+                    Text(msg).foregroundStyle(.red).font(.caption)
+                }
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Rate Order")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Skip") { dismiss() } } }
+        }
+    }
+}
+
+// MARK: - AI Menu View
+
+struct AIMenuView: View {
+    @StateObject private var vm = AIMenuViewModel()
+    @EnvironmentObject var cart:          CartViewModel
+    @EnvironmentObject var session:       UserSessionViewModel
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+    @Environment(\.dismiss) var dismiss
+    @State private var showMenu = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 24) {
+                    headerSection
+                    inputSection
+                    statusSection
+                    if let result = vm.result { resultSection(result) }
+                }
+                .padding()
+            }
+            .navigationTitle("Add Vendor")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            .navigationDestination(isPresented: $showMenu) {
+                if let result = vm.result { AIMenuBrowseView(cache: result) }
+            }
+        }
+    }
+
+    private var headerSection: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "brain.head.profile").font(.system(size: 48)).foregroundStyle(.purple)
+            Text("AI Menu Reader").font(.system(size: accessibility.dynamicFontSize + 6, weight: .bold))
+            Text("Paste any restaurant or store website and the AI will read the menu and prices for you.")
+                .font(.system(size: accessibility.dynamicFontSize - 2)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        }
+    }
+
+    private var inputSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Restaurant Website", systemImage: "link")
+                    .font(.system(size: accessibility.dynamicFontSize - 2, weight: .semibold)).foregroundStyle(.secondary)
+                TextField("e.g. timhortons.com/menu", text: $vm.urlText)
+                    .textFieldStyle(.roundedBorder)
+                    .keyboardType(.URL).autocorrectionDisabled().textInputAutocapitalization(.never)
+                    .font(.system(size: accessibility.dynamicFontSize))
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Vendor Name (optional)", systemImage: "storefront")
+                    .font(.system(size: accessibility.dynamicFontSize - 2, weight: .semibold)).foregroundStyle(.secondary)
+                TextField("e.g. Tim Hortons", text: $vm.vendorNameText)
+                    .textFieldStyle(.roundedBorder).font(.system(size: accessibility.dynamicFontSize))
+            }
+            Button {
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                vm.scrape()
+            } label: {
+                Group {
+                    if vm.isLoading {
+                        HStack(spacing: 8) {
+                            ProgressView().tint(.white)
+                            Text(vm.state == .fetching ? "Loading site…" : "AI reading menu…")
+                        }
+                    } else {
+                        Label("Read Menu with AI", systemImage: "sparkles")
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .font(.system(size: accessibility.dynamicFontSize, weight: .semibold))
+            }
+            .buttonStyle(.borderedProminent).tint(.purple).controlSize(.large)
+            .disabled(vm.urlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || vm.isLoading)
+        }
+    }
+
+    @ViewBuilder
+    private var statusSection: some View {
+        if vm.isLoading {
+            VStack(spacing: 12) {
+                ProgressView().scaleEffect(1.3)
+                Text(vm.statusLabel).font(.system(size: accessibility.dynamicFontSize - 2)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Text("This takes 5–15 seconds depending on the site size.")
+                    .font(.system(size: accessibility.dynamicFontSize - 4)).foregroundStyle(.tertiary).multilineTextAlignment(.center)
+            }
+            .padding()
+        } else if case .failed(let msg) = vm.state {
+            VStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 32)).foregroundStyle(.orange)
+                Text(msg).font(.system(size: accessibility.dynamicFontSize - 2)).multilineTextAlignment(.center).foregroundStyle(.secondary)
+                Button("Try Again") { vm.scrape() }.buttonStyle(.bordered).tint(.orange)
+            }
+            .padding()
+        }
+    }
+
+    @ViewBuilder
+    private func resultSection(_ result: ScrapedMenuCache) -> some View {
+        VStack(spacing: 16) {
+            VStack(spacing: 10) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(result.vendorName).font(.system(size: accessibility.dynamicFontSize + 2, weight: .bold))
+                        Text("\(result.categories.count) categor\(result.categories.count == 1 ? "y" : "ies")")
+                            .font(.system(size: accessibility.dynamicFontSize - 3)).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    confidenceBadge(result.confidence)
+                }
+                if let notes = result.notes, !notes.isEmpty {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "info.circle.fill").foregroundStyle(.blue).font(.caption)
+                        Text(notes).font(.system(size: accessibility.dynamicFontSize - 4)).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                let preview = result.categories.flatMap(\.items).prefix(3)
+                if !preview.isEmpty {
+                    Divider()
+                    VStack(spacing: 4) {
+                        ForEach(preview) { item in
+                            HStack {
+                                Text(item.name).font(.system(size: accessibility.dynamicFontSize - 3)).lineLimit(1)
+                                Spacer()
+                                Text(item.priceCents == 0 ? "Price unavailable" : item.formattedPrice)
+                                    .font(.system(size: accessibility.dynamicFontSize - 3, weight: .semibold))
+                                    .foregroundStyle(item.priceCents == 0 ? .secondary : .primary)
+                            }
+                        }
+                        let total = result.categories.flatMap(\.items).count
+                        if total > 3 {
+                            Text("+ \(total - 3) more items").font(.system(size: accessibility.dynamicFontSize - 4)).foregroundStyle(.tertiary).frame(maxWidth: .infinity, alignment: .trailing)
+                        }
+                    }
+                }
+            }
+            .padding()
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+
+            HStack(spacing: 12) {
+                Button {
+                    cart.vendorID   = UUID().uuidString
+                    cart.vendorName = result.vendorName
+                    showMenu        = true
+                } label: {
+                    Label("Browse & Order", systemImage: "cart.fill")
+                        .frame(maxWidth: .infinity)
+                        .font(.system(size: accessibility.dynamicFontSize - 1, weight: .semibold))
+                }
+                .buttonStyle(.borderedProminent).tint(.blue)
+
+                Button { vm.refresh() } label: {
+                    Image(systemName: "arrow.clockwise").font(.system(size: 18))
+                }
+                .buttonStyle(.bordered).tint(.secondary)
+                .accessibilityLabel("Refresh menu")
+            }
+
+            Text("Menu last read \(result.scrapedAt, style: .relative) ago · refreshes after 24 hours")
+                .font(.system(size: accessibility.dynamicFontSize - 5)).foregroundStyle(.tertiary).multilineTextAlignment(.center)
+        }
+    }
+
+    private func confidenceBadge(_ confidence: String) -> some View {
+        let (label, color): (String, Color) = switch confidence {
+        case "high":   ("✓ High accuracy", .green)
+        case "medium": ("~ Partial data",  .orange)
+        default:       ("⚠ Low confidence", .red)
+        }
+        return Text(label)
+            .font(.system(size: accessibility.dynamicFontSize - 5, weight: .semibold))
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(color.opacity(0.15), in: Capsule())
+            .foregroundStyle(color)
+    }
+}
+
+// MARK: - AI Menu Browse View
+
+struct AIMenuBrowseView: View {
+    let cache: ScrapedMenuCache
+    @EnvironmentObject var cart:          CartViewModel
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+    @State private var showCheckout = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                extractionBanner
+                ForEach(cache.categories) { category in
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(category.name)
+                            .font(.system(size: accessibility.dynamicFontSize + 2, weight: .bold))
+                            .padding(.horizontal)
+                        ForEach(category.items) { item in AIMenuItemRow(item: item) }
+                    }
+                }
+                if cache.categories.isEmpty {
+                    ContentUnavailableView(
+                        "No Menu Items Found",
+                        systemImage: "doc.questionmark",
+                        description: Text("The AI couldn't extract items from this page. Try linking directly to the /menu page.")
+                    )
+                }
+            }
+            .padding(.vertical)
+        }
+        .navigationTitle(cache.vendorName)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button { showCheckout = true } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "bag.fill")
+                        if cart.itemCount > 0 { Text("\(cart.itemCount)").font(.caption.bold()) }
+                    }
+                }
+                .disabled(cart.isEmpty)
+            }
+        }
+        .navigationDestination(isPresented: $showCheckout) {
+            CheckoutView(vendor: Vendor(id: UUID().uuidString, name: cache.vendorName, menuCategories: cache.categories))
+        }
+    }
+
+    private var extractionBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "brain.head.profile").foregroundStyle(.purple)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Menu read by AI from \(cache.vendorURL)")
+                    .font(.system(size: accessibility.dynamicFontSize - 4)).foregroundStyle(.secondary).lineLimit(1)
+                if let notes = cache.notes, !notes.isEmpty {
+                    Text(notes).font(.system(size: accessibility.dynamicFontSize - 5)).foregroundStyle(.tertiary).lineLimit(2)
+                }
+            }
+        }
+        .padding(.horizontal)
+    }
+}
+
+// MARK: - AI Menu Item Row
+
+struct AIMenuItemRow: View {
+    let item: MenuItem
+    @EnvironmentObject var cart:          CartViewModel
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.name).font(.system(size: accessibility.dynamicFontSize, weight: .semibold))
+                if !item.description.isEmpty {
+                    Text(item.description).font(.system(size: accessibility.dynamicFontSize - 3)).foregroundStyle(.secondary).lineLimit(2)
+                }
+                HStack(spacing: 8) {
+                    if item.priceCents > 0 {
+                        Text(item.formattedPrice).font(.system(size: accessibility.dynamicFontSize - 1, weight: .semibold)).foregroundStyle(.blue)
+                    } else {
+                        Text("Price not available").font(.system(size: accessibility.dynamicFontSize - 3)).foregroundStyle(.tertiary)
+                    }
+                    if let cal = item.calories {
+                        Text("·").foregroundStyle(.tertiary)
+                        Text("\(cal) cal").font(.system(size: accessibility.dynamicFontSize - 5)).foregroundStyle(.tertiary)
+                    }
+                }
+                if !item.allergens.isEmpty {
+                    Text(item.allergens.joined(separator: ", "))
+                        .font(.system(size: accessibility.dynamicFontSize - 5)).foregroundStyle(.orange.opacity(0.8))
+                }
+            }
+            Spacer()
+            Button {
+                cart.add(item)
+                HapticManager.shared.impact(.light)
+            } label: {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 28))
+                    .foregroundStyle(item.priceCents > 0 ? .blue : .gray)
+            }
+            .disabled(item.priceCents == 0)
+            .accessibilityLabel(item.priceCents > 0
+                ? "Add \(item.name) for \(item.formattedPrice) to cart"
+                : "\(item.name) — price unavailable, cannot add to cart")
+        }
+        .padding(.horizontal).padding(.vertical, 8)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: - Preview
+
+#Preview {
+    ContentView()
+        .environmentObject(UserSessionViewModel())
+        .environmentObject(AccessibilityViewModel())
+        .environmentObject(CartViewModel())
+}
+//
+//  spLingApp.swift
+//  spLing
+//
+//  Created by Laszlo Czako on 2026-02-21.
+//
+
+import SwiftUI
+
+@main
+struct spLingApp: App {
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+        }
+    }
+}
+//
+//  ContentView.swift
+//  spLing
+//
+//  Created by Laszlo Czako on 2026-02-21.
+//
+
+import SwiftUI
+
+struct ContentView: View {
+    var body: some View {
+        VStack {
+            Image(systemName: "globe")
+                .imageScale(.large)
+                .foregroundStyle(.tint)
+            Text("Hello, world!")
+        }
+        .padding()
+    }
+}
+
+#Preview {
+    ContentView()
+}
+//
+// ViewModels.swift
+// Spling
+//
+import Foundation
+import Combine
+
+// MARK: - User Session ViewModel
+
+@MainActor
+class UserSessionViewModel: ObservableObject {
+    @Published var profile:    UserProfile = PersistenceManager.shared.loadProfile()
+    @Published var authState:  AuthState   = .unauthenticated
+    @Published var authError:  String?
+
+    enum AuthState { case unauthenticated, authenticating, authenticated }
+
+    // MARK: Auth
+
+    func authenticate() {
+        guard authState != .authenticating else { return }
+        authState = .authenticating
+        authError = nil
+        Task {
+            do {
+                try await AuthManager.shared.authenticate()
+                HapticManager.shared.notification(.success)
+                authState = .authenticated
+            } catch AuthError.cancelled {
+                authState = .unauthenticated
+            } catch {
+                HapticManager.shared.notification(.error)
+                authError = error.localizedDescription
+                authState = .unauthenticated
+            }
+        }
+    }
+
+    func signOut() {
+        authState = .unauthenticated
+        profile   = UserProfile()
+        PersistenceManager.shared.clearAll()
+    }
+
+    // MARK: Payment
+
+    var preferredPaymentMethod: PaymentMethod? {
+        guard let id = profile.preferredPaymentID else { return profile.paymentMethods.first }
+        return profile.paymentMethods.first { $0.id == id }
+    }
+
+    // MARK: Loyalty
+
+    func addPoints(for order: Order) {
+        let earned = (order.totalCents / 100) * AppConfig.Loyalty.pointsPerDollar
+        profile.loyaltyAccount.points          += earned
+        profile.loyaltyAccount.lifetimePoints  += earned
+        let tx = LoyaltyTransaction(
+            id:           UUID(),
+            orderID:      order.id,
+            pointsEarned: earned,
+            date:         Date(),
+            vendorName:   order.vendorName
+        )
+        profile.loyaltyAccount.transactions.append(tx)
+        save()
+    }
+
+    // MARK: Saved Orders
+
+    func savedOrders(for vendorID: String) -> [SavedOrder] {
+        profile.savedOrders.filter { $0.vendorID == vendorID }
+    }
+
+    func saveOrder(_ savedOrder: SavedOrder) {
+        profile.savedOrders.append(savedOrder)
+        save()
+    }
+
+    func deleteSavedOrder(id: UUID) {
+        profile.savedOrders.removeAll { $0.id == id }
+        save()
+    }
+
+    // MARK: Order History
+
+    func addToHistory(_ order: Order) {
+        profile.orderHistory.insert(order, at: 0)
+        save()
+    }
+
+    // MARK: Reviews
+
+    func addReview(_ review: Review) {
+        profile.reviews.append(review)
+        save()
+    }
+
+    func hasReviewed(orderID: UUID) -> Bool {
+        profile.reviews.contains { $0.orderID == orderID }
+    }
+
+    // MARK: Persistence
+
+    private func save() {
+        PersistenceManager.shared.saveProfile(profile)
+    }
+}
+
+// MARK: - Vendor ViewModel
+
+@MainActor
+class VendorViewModel: ObservableObject {
+    @Published var vendor:               Vendor?
+    @Published var detectedTerminal:     Terminal?
+    @Published var orderHistoryAtVendor: [SavedOrder]  = []
+    @Published var personalizedOffers:   [String]      = []
+    @Published var loadState:            LoadState     = .idle
+
+    enum LoadState { case idle, loading, loaded, failed(String) }
+
+    func load(from tagPayload: NFCTagPayload, userProfile: UserProfile) async {
+        loadState = .loading
+        guard
+            let vendorURL   = URL(string: "\(AppConfig.API.baseURL)/vendor/\(tagPayload.vendorID)"),
+            let terminalURL = URL(string: "\(AppConfig.API.baseURL)/terminal/\(tagPayload.terminalID)")
+        else {
+            loadState = .failed("Invalid vendor or terminal URL.")
+            return
+        }
+        do {
+            async let vendorFetch   = URLSession.shared.data(from: vendorURL)
+            async let terminalFetch = URLSession.shared.data(from: terminalURL)
+            let (vendorData,   vendorResp)   = try await vendorFetch
+            let (terminalData, terminalResp) = try await terminalFetch
+
+            guard
+                let vh = vendorResp   as? HTTPURLResponse, (200...299).contains(vh.statusCode),
+                let th = terminalResp as? HTTPURLResponse, (200...299).contains(th.statusCode)
+            else {
+                loadState = .failed("Failed to load vendor or terminal data.")
+                return
+            }
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            vendor          = try decoder.decode(Vendor.self,   from: vendorData)
+            detectedTerminal = try decoder.decode(Terminal.self, from: terminalData)
+
+            if vendor?.supportsOrderHistory == true {
+                orderHistoryAtVendor = userProfile.savedOrders.filter { $0.vendorID == tagPayload.vendorID }
+            }
+            if vendor?.personalizedRecommendations == true {
+                await loadPersonalisedOffers(
+                    vendorID:    tagPayload.vendorID,
+                    loyaltyTier: userProfile.loyaltyAccount.tier.rawValue
+                )
+            }
+            loadState = .loaded
+        } catch {
+            loadState = .failed(error.localizedDescription)
+        }
+    }
+
+    private func loadPersonalisedOffers(vendorID: String, loyaltyTier: String) async {
+        guard let url = URL(string: "\(AppConfig.API.baseURL)/vendor/\(vendorID)/offers?tier=\(loyaltyTier)") else { return }
+        do {
+            let (data, _)    = try await URLSession.shared.data(from: url)
+            personalizedOffers = (try? JSONDecoder().decode([String].self, from: data)) ?? []
+        } catch {
+            personalizedOffers = []
+        }
+    }
+
+    func loadFromAIResult(vendor: Vendor) {
+        self.vendor              = vendor
+        detectedTerminal         = nil
+        orderHistoryAtVendor     = []
+        personalizedOffers       = []
+        loadState                = .loaded
+    }
+
+    // MARK: - Mock (simulator / preview)
+
+    func loadMockVendor(from tagPayload: NFCTagPayload) {
+        let mockTerminal = Terminal(
+            id:               tagPayload.terminalID,
+            vendorID:         tagPayload.vendorID,
+            type:             tagPayload.terminalType,
+            label:            tagPayload.terminalType == .speakerBox ? "Lane 1 Speaker" : "Drive-Through Intercom",
+            queueLength:      2,
+            isAcceptingOrders: true,
+            menuLastUpdated:  Date(),
+            posSystemID:      "pos_001"
+        )
+        vendor = Vendor(
+            id:      tagPayload.vendorID,
+            name:    "Tim Hortons",
+            address: "123 Main St",
+            menuCategories: [
+                MenuCategory(id: "cat1", name: "Drinks", items: [
+                    MenuItem(id: "m1", name: "Medium Coffee",        description: "Freshly brewed",        priceCents: 219, imageURL: nil, customizations: [], allergens: [], calories: 10),
+                    MenuItem(id: "m2", name: "Large Coffee",         description: "Freshly brewed",        priceCents: 259, imageURL: nil, customizations: [], allergens: [], calories: 15),
+                    MenuItem(id: "m3", name: "Iced Capp",            description: "Blended frozen coffee", priceCents: 399, imageURL: nil, customizations: [], allergens: ["Dairy"], calories: 260)
+                ]),
+                MenuCategory(id: "cat2", name: "Food", items: [
+                    MenuItem(id: "m4", name: "Everything Bagel",       description: "With cream cheese",                  priceCents: 299, imageURL: nil, customizations: [], allergens: ["Gluten","Dairy"], calories: 350),
+                    MenuItem(id: "m5", name: "Farmers Breakfast Wrap", description: "Egg, cheese, sausage, hash brown",   priceCents: 519, imageURL: nil, customizations: [], allergens: ["Gluten","Dairy","Egg"], calories: 500)
+                ])
+            ],
+            terminals: [mockTerminal],
+            posInfo: POSSystemInfo(
+                systemID:               "pos_001",
+                provider:               "NCR Aloha",
+                endpointURL:            URL(string: "\(AppConfig.API.baseURL)/pos/orders")!,
+                requiresAcknowledgement: true
+            ),
+            supportsOrderHistory:        true,
+            personalizedRecommendations: false
+        )
+        detectedTerminal = mockTerminal
+        loadState = .loaded
+    }
+}
+
+// MARK: - Cart ViewModel
+
+@MainActor
+class CartViewModel: ObservableObject {
+    @Published var items:                 [OrderItem]      = []
+    @Published var selectedPaymentMethod: PaymentMethod?
+    @Published var specialInstructions:   String           = ""
+
+    var vendorID:            String        = ""
+    var vendorName:          String        = ""
+    var activeTerminalID:    String?       = nil
+    var activeTerminalType:  TerminalType? = nil
+
+    var totalCents:    Int    { items.reduce(0) { $0 + $1.subtotalCents } }
+    var formattedTotal: String { String(format: "$%.2f", Double(totalCents) / 100.0) }
+    var isEmpty:       Bool   { items.isEmpty }
+    var itemCount:     Int    { items.reduce(0) { $0 + $1.quantity } }
+
+    func add(_ item: MenuItem, customizations: [String: String] = []) {
+        if let idx = items.firstIndex(where: { $0.menuItem.id == item.id }) {
+            items[idx].quantity += 1
+        } else {
+            items.append(OrderItem(menuItem: item, customizations: customizations))
+        }
+        HapticManager.shared.impact(.light)
+    }
+
+    func remove(_ item: OrderItem) {
+        items.removeAll { $0.id == item.id }
+    }
+
+    func updateQuantity(of item: OrderItem, to quantity: Int) {
+        guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
+        if quantity <= 0 { items.remove(at: idx) }
+        else             { items[idx].quantity = quantity }
+    }
+
+    func clear() {
+        items                = []
+        selectedPaymentMethod = nil
+        specialInstructions  = ""
+        activeTerminalID     = nil
+        activeTerminalType   = nil
+    }
+
+    func loadFromSavedOrder(_ saved: SavedOrder) {
+        vendorID           = saved.vendorID
+        vendorName         = saved.vendorName
+        items              = saved.items
+        activeTerminalType = saved.originatingTerminalType
+    }
+
+    func asOrder(channel: OrderChannel? = nil, placedByCaretaker: Bool = false) -> Order {
+        let resolvedChannel = channel ?? activeTerminalType?.orderChannel ?? .inStore
+        return Order(
+            vendorID:         vendorID,
+            vendorName:       vendorName,
+            items:            items,
+            channel:          resolvedChannel,
+            placedByCaretaker: placedByCaretaker,
+            terminalID:       activeTerminalID,
+            terminalType:     activeTerminalType
+        )
+    }
+}
+
+// MARK: - Order ViewModel
+
+@MainActor
+class OrderViewModel: ObservableObject {
+    @Published var activeOrder:       Order?
+    @Published var queueStatus:       QueueStatus?
+    @Published var posAcknowledgement: POSAcknowledgement?
+    @Published var receipt:           Receipt?
+    @Published var orderState:        OrderState   = .idle
+    @Published var errorMessage:      String?
+
+    enum OrderState: Equatable {
+        case idle, submitting, processingPayment, routingToPOS, inQueue, completed
+        case failed(String)
+
+        static func == (lhs: OrderState, rhs: OrderState) -> Bool {
+            switch (lhs, rhs) {
+            case (.idle, .idle), (.submitting, .submitting),
+                 (.processingPayment, .processingPayment),
+                 (.routingToPOS, .routingToPOS),
+                 (.inQueue, .inQueue), (.completed, .completed): return true
+            case (.failed(let a), .failed(let b)):               return a == b
+            default:                                             return false
+            }
+        }
+    }
+
+    func submit(order: Order, paymentMethod: PaymentMethod, posInfo: POSSystemInfo?) async {
+        orderState  = .submitting
+        errorMessage = nil
+
+        do {
+            // Step 1: POST to Spling backend
+            guard let url = URL(string: "\(AppConfig.API.baseURL)\(AppConfig.API.ordersEndpoint)") else {
+                throw URLError(.badURL)
+            }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONEncoder().encode(order)
+            let (_, orderResponse) = try await URLSession.shared.data(for: request)
+            guard let orderHTTP = orderResponse as? HTTPURLResponse,
+                  (200...299).contains(orderHTTP.statusCode)
+            else { throw URLError(.badServerResponse) }
+
+            activeOrder = order
+
+            // Step 2: Process payment
+            orderState = .processingPayment
+            let paymentResult = try await PaymentManager.shared.process(order: order, method: paymentMethod)
+
+            // Step 3: Route to POS
+            if let posInfo {
+                orderState = .routingToPOS
+                let ack = try await POSService.shared.submit(
+                    order:                order,
+                    paymentTransactionID: paymentResult.transactionID,
+                    posInfo:             posInfo
+                )
+                posAcknowledgement      = ack
+                activeOrder?.posOrderID = ack.posOrderID
+                activeOrder?.pickupReference = ack.pickupReference
+            }
+
+            // Step 4: Build receipt
+            receipt = Receipt(order: activeOrder ?? order, payment: paymentResult)
+            HapticManager.shared.notification(.success)
+            AudioManager.shared.playSplingDing()
+            orderState = .completed
+
+        } catch let payErr as PaymentError {
+            HapticManager.shared.notification(.error)
+            orderState   = .failed(payErr.localizedDescription)
+            errorMessage = payErr.localizedDescription
+        } catch {
+            HapticManager.shared.notification(.error)
+            orderState   = .failed(error.localizedDescription)
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func pollQueueStatus(for orderID: UUID) async {
+        do {
+            queueStatus = try await POSService.shared.fetchQueueStatus(queueID: orderID.uuidString)
+            if case .completed = orderState { return }
+            orderState = .inQueue
+        } catch {
+            errorMessage = "Could not fetch queue position: \(error.localizedDescription)"
+        }
+    }
+
+    func reset() {
+        activeOrder        = nil
+        queueStatus        = nil
+        posAcknowledgement = nil
+        receipt            = nil
+        orderState         = .idle
+        errorMessage       = nil
+    }
+}
+
+// MARK: - Order Prioritization ViewModel
+
+@MainActor
+class OrderPrioritizationViewModel: ObservableObject {
+    @Published private(set) var orders: [Order] = []
+
+    var prioritizedOrders: [Order] {
+        orders.sorted {
+            if $0.channel.priority != $1.channel.priority { return $0.channel.priority < $1.channel.priority }
+            if $0.placedByCaretaker != $1.placedByCaretaker { return $0.placedByCaretaker }
+            return $0.placedAt < $1.placedAt
+        }
+    }
+
+    func add(_ order: Order)         { orders.append(order) }
+    func complete(orderID: UUID)      { orders.removeAll { $0.id == orderID } }
+
+    func addSampleOrders() {
+        let samples: [(OrderChannel, Bool)] = [
+            (.online, false), (.inStore, false),
+            (.driveThrough, false), (.inStore, true)
+        ]
+        samples.forEach { channel, isCaretaker in
+            orders.append(Order(vendorID: "v1", vendorName: "Tim Hortons",
+                                channel: channel, placedByCaretaker: isCaretaker))
+        }
+    }
+}
+
+// MARK: - Accessibility Settings ViewModel
+
+@MainActor
+class AccessibilityViewModel: ObservableObject {
+    @Published var settings: AccessibilitySettings
+
+    init(settings: AccessibilitySettings = AccessibilitySettings()) {
+        self.settings = settings
+    }
+
+    var dynamicFontSize: CGFloat { CGFloat(settings.fontSize) }
+
+    func resetToDefaults() { settings = AccessibilitySettings() }
+
+    func announceForVoiceOver(_ message: String) {
+        guard settings.voiceGuidanceEnabled else { return }
+        UIAccessibility.post(notification: .announcement, argument: message)
+    }
+}
+
+// MARK: - Rating ViewModel
+
+@MainActor
+class RatingViewModel: ObservableObject {
+    @Published var rating:   Int         = 5
+    @Published var feedback: String      = ""
+    @Published var state:    SubmitState = .idle
+
+    enum SubmitState { case idle, submitting, submitted, failed(String) }
+
+    func submit(for orderID: UUID) async {
+        guard state != .submitting else { return }
+        state = .submitting
+        guard let url = URL(string: "\(AppConfig.API.baseURL)\(AppConfig.API.ratingsEndpoint)") else {
+            state = .failed("Invalid URL."); return
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = [
+            "orderID": orderID.uuidString,
+            "rating":  rating,
+            "feedback": feedback.trimmingCharacters(in: .whitespacesAndNewlines)
+        ]
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                state = .failed("Submission failed. Please try again."); return
+            }
+            HapticManager.shared.notification(.success)
+            state = .submitted
+        } catch {
+            state = .failed(error.localizedDescription)
+        }
+    }
+}
+
+// MARK: - Review ViewModel
+
+@MainActor
+class ReviewViewModel: ObservableObject {
+    @Published var rating:      Int          = 5
+    @Published var title:       String       = ""
+    @Published var body:        String       = ""
+    @Published var isAnonymous: Bool         = false
+    @Published var state:       ReviewState  = .idle
+    @Published var vendorReviews: [Review]   = []
+    @Published var reviewSummary: VendorReviewSummary?
+    @Published var isLoadingReviews: Bool    = false
+
+    enum ReviewState {
+        case idle, submitting, submitted, failed(String)
+    }
+
+    var characterCount: Int    { body.count }
+    var isOverLimit:    Bool   { body.count > AppConfig.Reviews.maxBodyLength }
+    var canSubmit:      Bool   {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !isOverLimit &&
+        state != .submitting
+    }
+
+    // MARK: - Submit a new review
+
+    func submitReview(
+        order: Order,
+        authorName: String,
+        sessionVM: UserSessionViewModel
+    ) async {
+        guard canSubmit else { return }
+        guard !sessionVM.hasReviewed(orderID: order.id) else {
+            state = .failed("You've already reviewed this order.")
+            return
+        }
+
+        state = .submitting
+        let review = Review(
+            vendorID:        order.vendorID,
+            vendorName:      order.vendorName,
+            orderID:         order.id,
+            rating:          rating,
+            title:           title.trimmingCharacters(in: .whitespacesAndNewlines),
+            body:            body.trimmingCharacters(in: .whitespacesAndNewlines),
+            authorName:      isAnonymous ? "Anonymous" : authorName,
+            isVerifiedOrder: true
+        )
+
+        do {
+            let submitted = try await ReviewService.shared.submit(review)
+            sessionVM.addReview(submitted)
+            HapticManager.shared.notification(.success)
+            state = .submitted
+        } catch {
+            HapticManager.shared.notification(.error)
+            state = .failed(error.localizedDescription)
+        }
+    }
+
+    // MARK: - Load vendor reviews
+
+    func loadReviews(vendorID: String) async {
+        isLoadingReviews = true
+        defer { isLoadingReviews = false }
+        do {
+            async let reviewsFetch  = ReviewService.shared.fetchReviews(vendorID: vendorID)
+            async let summaryFetch  = ReviewService.shared.fetchSummary(vendorID: vendorID)
+            vendorReviews  = try await reviewsFetch
+            reviewSummary  = try await summaryFetch
+        } catch {
+            // Non-critical — reviews are supplementary; don't block the menu
+            #if DEBUG
+            print("[ReviewViewModel] Load error: \(error)")
+            #endif
+        }
+    }
+
+    // MARK: - Mark helpful
+
+    func markHelpful(review: Review) async {
+        do {
+            try await ReviewService.shared.markHelpful(reviewID: review.id)
+            if let idx = vendorReviews.firstIndex(where: { $0.id == review.id }) {
+                vendorReviews[idx].helpfulCount += 1
+            }
+        } catch {
+            #if DEBUG
+            print("[ReviewViewModel] markHelpful error: \(error)")
+            #endif
+        }
+    }
+
+    func reset() {
+        rating      = 5
+        title       = ""
+        body        = ""
+        isAnonymous = false
+        state       = .idle
+    }
+}
+
+// MARK: - AI Menu ViewModel
+
+@MainActor
+class AIMenuViewModel: ObservableObject {
+    @Published var urlText:       String      = ""
+    @Published var vendorNameText: String     = ""
+    @Published var state:         ScrapeState = .idle
+    @Published var result:        ScrapedMenuCache?
+    @Published var errorMessage:  String?
+
+    enum ScrapeState {
+        case idle, fetching, parsing, done, failed(String)
+    }
+
+    var isLoading: Bool {
+        switch state { case .fetching, .parsing: return true; default: return false }
+    }
+
+    var statusLabel: String {
+        switch state {
+        case .idle:           return "Paste a restaurant or store URL above"
+        case .fetching:       return "Loading website…"
+        case .parsing:        return "AI is reading the menu…"
+        case .done:           return "Menu ready!"
+        case .failed(let m):  return m
+        }
+    }
+
+    func scrape() {
+        guard !urlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !isLoading else { return }
+        state        = .fetching
+        errorMessage = nil
+        result       = nil
+        Task {
+            do {
+                state = .fetching
+                let name  = vendorNameText.trimmingCharacters(in: .whitespacesAndNewlines)
+                let cache = try await AIMenuService.shared.fetchMenu(
+                    from:       urlText,
+                    vendorName: name.isEmpty ? nil : name
+                )
+                state  = .parsing
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                result = cache
+                state  = .done
+                HapticManager.shared.notification(.success)
+            } catch {
+                let msg  = error.localizedDescription
+                state    = .failed(msg)
+                errorMessage = msg
+                HapticManager.shared.notification(.error)
+            }
+        }
+    }
+
+    func refresh() {
+        Task { await AIMenuService.shared.clearCache(for: urlText) }
+        scrape()
+    }
+
+    func reset() {
+        urlText       = ""
+        vendorNameText = ""
+        state         = .idle
+        result        = nil
+        errorMessage  = nil
+    }
+}
+//
+// AppConfig.swift
+// Spling
+//
+import Foundation
+
+enum AppConfig {
+
+    // MARK: - API
+    enum API {
+        static let baseURL = "https://api.spling.app/v1"
+        static let menuEndpoint      = "/menu"
+        static let queueEndpoint     = "/queue"
+        static let ordersEndpoint    = "/orders"
+        static let ratingsEndpoint   = "/ratings"
+        static let paymentEndpoint   = "/payment"
+        static let reviewsEndpoint   = "/reviews"
+        static let vendorEndpoint    = "/vendor"
+        static let terminalEndpoint  = "/terminal"
+    }
+
+    // MARK: - NFC
+    enum NFC {
+        static let alertMessage        = "Hold your iPhone near the Spling terminal to start your order."
+        static let ndefStatusByteIndex = 0
+        static let ndefLengthByteIndex = 1
+    }
+
+    // MARK: - Audio
+    enum Audio {
+        static let splingDingFile      = "spling_ding"
+        static let splingDingExtension = "mp3"
+    }
+
+    // MARK: - Loyalty
+    enum Loyalty {
+        static let pointsPerDollar    = 10
+        static let silverThreshold    = 100
+        static let goldThreshold      = 500
+        static let platinumThreshold  = 1500
+    }
+
+    // MARK: - Accessibility
+    enum Accessibility {
+        static let minimumTextSize: Double = 14
+        static let maximumTextSize: Double = 36
+        static let defaultTextSize: Double = 17
+    }
+
+    // MARK: - Claude AI (Menu Scraper)
+    enum Claude {
+        /// Load from Keychain in production — never commit a real key.
+        static var apiKey: String {
+            KeychainManager.shared.retrieve(key: "anthropic_api_key") ?? ""
+        }
+        static let apiURL     = "https://api.anthropic.com/v1/messages"
+        static let apiVersion = "2023-06-01"
+        /// claude-haiku-4-5: fast + cheap. Swap to claude-sonnet-4-6 for complex menus.
+        static let model                    = "claude-haiku-4-5-20251001"
+        static let menuExtractionMaxTokens  = 2048
+        /// 24-hour cache TTL before re-scraping.
+        static let menuCacheTTL: TimeInterval = 60 * 60 * 24
+    }
+
+    // MARK: - Reviews
+    enum Reviews {
+        static let maxRating       = 5
+        static let minRating       = 1
+        static let maxBodyLength   = 500
+        static let pageSize        = 20
+    }
+
+    // MARK: - Payment
+    enum Payment {
+        static let stripePublishableKey = "" // Set before shipping
+        static let currency             = "cad"
+        static let countryCode          = "CA"
+    }
+}
+//
+//  spLingTests.swift
+//  spLingTests
+//
+//  Created by Laszlo Czako on 2026-02-21.
+//
+
+import Testing
+@testable import spLing
+
+struct spLingTests {
+
+    @Test func example() async throws {
+        // Write your test here and use APIs like `#expect(...)` to check expected conditions.
+    }
+
+}
+//
+//  spLingUITests.swift
+//  spLingUITests
+//
+//  Created by Laszlo Czako on 2026-02-21.
+//
+
+import XCTest
+
+final class spLingUITests: XCTestCase {
+
+    override func setUpWithError() throws {
+        // Put setup code here. This method is called before the invocation of each test method in the class.
+
+        // In UI tests it is usually best to stop immediately when a failure occurs.
+        continueAfterFailure = false
+
+        // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
+    }
+
+    override func tearDownWithError() throws {
+        // Put teardown code here. This method is called after the invocation of each test method in the class.
+    }
+
+    @MainActor
+    func testExample() throws {
+        // UI tests must launch the application that they test.
+        let app = XCUIApplication()
+        app.launch()
+
+        // Use XCTAssert and related functions to verify your tests produce the correct results.
+    }
+
+    @MainActor
+    func testLaunchPerformance() throws {
+        if #available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 7.0, *) {
+            // This measures how long it takes to launch your application.
+            measure(metrics: [XCTApplicationLaunchMetric()]) {
+                XCUIApplication().launch()
+            }
+        }
+    }
+}
+//
+//  spLingUITestsLaunchTests.swift
+//  spLingUITests
+//
+//  Created by Laszlo Czako on 2026-02-21.
+//
+
+import XCTest
+
+final class spLingUITestsLaunchTests: XCTestCase {
+
+    override class var runsForEachTargetApplicationUIConfiguration: Bool {
+        true
+    }
+
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+    }
+
+    @MainActor
+    func testLaunch() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        // Insert steps here to perform after app launch but before taking a screenshot,
+        // such as logging into a test account or navigating somewhere in the app
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Launch Screen"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+}
