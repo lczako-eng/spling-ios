@@ -368,17 +368,18 @@ html:not(.motion) .field-legend{ display: none; }
 }
 @keyframes caret{ 50% { opacity: 0; } }
 
-/* the receipt — the brand gradient, worn like the logo */
+/* The receipt — thermal paper. Ink on paper, monochrome throughout;
+   the pickup code is the single accent. Layout and animation unchanged. */
 .order-card{
   align-self: flex-start;
   width: min(400px, 96%);
-  background: var(--purple);
-  background-image: var(--grad);
-  color: #fff;
+  background: #FDFDFB;
+  color: #1C1C1A;
+  border: 1px solid #E3E0D8;
   border-radius: 14px;
   padding: 22px 24px;
   font-family: var(--mono);
-  box-shadow: 0 26px 70px -22px rgba(94,61,204,.75), 0 4px 14px -6px rgba(94,61,204,.4);
+  box-shadow: 0 18px 44px -24px rgba(28,28,26,.30);
 }
 @media (min-width: 760px){
   .order-card{ width: 420px; }
@@ -387,28 +388,28 @@ html:not(.motion) .field-legend{ display: none; }
   font-size: 0.78rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  opacity: 0.85;
+  color: #1C1C1A;
 }
 .order-card .item{
   display: flex; justify-content: space-between; gap: 16px;
   margin-top: 14px; font-size: 1rem;
 }
-.order-card .mods{ font-size: 0.88rem; opacity: 0.85; margin-top: 2px; }
+.order-card .mods{ font-size: 0.88rem; color: #1C1C1A; margin-top: 2px; }
 .order-card .rule{
   border: 0;
-  border-top: 2px dashed rgba(255,255,255,.45);
+  border-top: 1px dashed #B8B4AA;      /* thermal-paper rule */
   margin: 16px 0;
 }
 .order-card .total{
   display: flex; justify-content: space-between;
   font-weight: 600; font-size: 1.05rem;
 }
-.order-card .paid{ margin-top: 6px; font-size: 0.82rem; opacity: 0.85; }
+.order-card .paid{ margin-top: 6px; font-size: 0.82rem; color: #1C1C1A; }
 .pickup{
   margin-top: 16px;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  background: var(--magenta);          /* the accent: exactly once on this page */
-  color: var(--ink);
+  background: var(--purple);           /* the receipt's single accent */
+  color: #fff;                         /* 6.9:1 — AA at every size */
   border-radius: 9px;
   padding: 10px 16px;
   font-weight: 600;
