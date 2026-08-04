@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Spling — Your AI assistant is your mouth</title>
+<title>Spling — Be understood by any business</title>
 
 <link rel="canonical" href="https://spling.org/" />
 <meta name="robots" content="index, follow, max-image-preview:large, max-snippet=-1" />
-<meta name="description" content="Order without speaking — in any language, with any voice, or with no voice at all. Spling places food orders through your AI assistant as structured data, so the spoken channel is never required at the point of sale. One connector for Claude, ChatGPT, and any assistant that speaks MCP; your language and communication profile travel with you. Payment by secure Square checkout; Spling never sees your card." />
+<meta name="description" content="Spling removes the communication barrier between a person and a business — at drive-throughs, counters, cafés, hotels, airports, retail, hospitals, stadiums and government service desks. Communicate in any language, with any voice or none at all; the business receives an exact structured transaction its own system understands. One connector for Claude, ChatGPT and any assistant that speaks MCP. Ordering is the first application; the communication layer is the product." />
 
-<meta property="og:title" content="Spling — Your AI assistant is your mouth" />
-<meta property="og:description" content="Order without speaking — in any language, with any voice, or with no voice at all. One connector for Claude, ChatGPT, and any assistant that speaks MCP." />
+<meta property="og:title" content="Spling — Be understood by any business" />
+<meta property="og:description" content="A communication layer for everywhere commerce happens. Be understood by any business — in any language, with any voice, or with no voice at all." />
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://spling.org/" />
 <meta name="twitter:card" content="summary" />
@@ -257,6 +257,15 @@ header.mast{ padding-top: 34px; }
   font-size: clamp(1.2rem, 1.05rem + 1vw, 1.5rem);
   color: var(--muted);
   max-width: 34ch;
+}
+#hero .sub-layer{
+  grid-column: wide;
+  margin-top: 14px;
+  font-size: 1.05rem;
+  color: var(--ink);
+  max-width: 44ch;
+  border-left: 3px solid var(--purple);
+  padding-left: 14px;
 }
 
 /* ——— The field: voice → language → structured data ——— */
@@ -791,6 +800,65 @@ html.motion .ticker.paused .track{ animation-play-state: paused; }
   font-weight: 600;
 }
 #works .works-p{ margin-top: 28px; }
+/* ——— Accuracy intelligence: the chain, and what it can answer ——— */
+.chain-of-truth{
+  list-style: none;
+  counter-reset: cot;
+  margin: 1.1em 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chain-of-truth li{
+  counter-increment: cot;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  border: 1px solid var(--purple);
+  border-radius: 6px;
+  padding: 6px 11px;
+  white-space: nowrap;
+}
+.chain-of-truth li::before{
+  content: counter(cot) " ";
+  color: var(--purple);
+  font-weight: 600;
+}
+.questions{
+  margin: 1em 0 1em 1.1em;
+  color: var(--muted);
+}
+.questions li + li{ margin-top: 5px; }
+
+/* ——— Everywhere commerce happens ——— */
+.del-broaden{ margin-top: 1.4em !important; }
+.venues{
+  grid-column: wide;
+  list-style: none;
+  margin-top: clamp(1.2rem, 1rem + 1.2vw, 1.8rem);
+}
+.venues li{
+  display: grid;
+  gap: 4px 2rem;
+  padding: clamp(0.85rem, 0.7rem + 0.8vw, 1.2rem) 0;
+  border-top: 1px solid var(--hair);
+}
+.venues li:last-child{ border-bottom: 1px solid var(--hair); }
+@media (min-width: 780px){
+  .venues li{ grid-template-columns: 15rem 1fr; align-items: baseline; }
+}
+.v-n{
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(1.05rem, 1rem + 0.5vw, 1.2rem);
+}
+.v-d{ color: var(--muted); max-width: 52ch; }
+.everywhere-close{
+  grid-column: wide;
+  margin-top: clamp(1.4rem, 1.1rem + 1.4vw, 2.2rem);
+  max-width: 58ch;
+}
+#everywhere h2{ grid-column: wide; }
+
 /* ——— The hop chains — the fidelity argument, as real markup ——— */
 /* the whole section shares one left edge */
 #hops h2, #hops .sub-h, #hops > p{ grid-column: wide; }
@@ -1308,8 +1376,10 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
       <span class="mask"><span class="mline">Your AI assistant</span></span>
       <span class="mask"><span class="mline">is your mouth.<svg viewBox="0 0 220 16" preserveAspectRatio="none" aria-hidden="true" focusable="false"><defs><linearGradient id="ulgrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#0641A9"/><stop offset="0.5" stop-color="#5E3DCC"/><stop offset="1" stop-color="#B639ED"/></linearGradient></defs><path d="M3,11 C 58,4 132,14 217,7" pathLength="1"/></svg></span></span>
     </h1>
-    <p class="sub">Order without speaking — in any language, with any voice,
+    <p class="sub">Be understood by any business — in any language, with any voice,
       or with no voice at all.</p>
+    <p class="sub-layer">A communication layer for everywhere commerce happens.
+      Ordering is just the first thing we pointed it at.</p>
 
     <form class="waitlist" id="wl-hero-form" name="waitlist" method="POST"
           action="/" data-netlify="true" netlify-honeypot="bot-field" novalidate>
@@ -1530,8 +1600,17 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
         Remove the acoustic channel, and every failure mode attached
         to it goes too. <strong>You order. They understand. Every time.</strong>
       </p>
+      <p class="del-broaden">
+        The drive-through is only the clearest version of this. The same barrier stands at
+        a café counter, a hotel desk, an airport gate, a pharmacy window, a stadium
+        concession and a government service desk — anywhere a person has to make
+        themselves understood to a business before anything can happen.
+        <strong>That barrier is the problem. The speaker was just where we noticed it.</strong>
+      </p>
     </div>
   </section>
+
+
 
   <!-- 05 · Caregiver staging -->
   <section class="g" id="care" aria-labelledby="care-h">
@@ -1590,9 +1669,61 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
     </form>
   </section>
 
+  <!-- Everywhere commerce happens -->
+  <section class="g" id="everywhere" aria-labelledby="everywhere-h">
+    <div class="catch" aria-hidden="true">04 — Everywhere commerce happens</div>
+    <h2 id="everywhere-h">The counter is everywhere.</h2>
+    <p class="rows-lead">
+      Every one of these is the same transaction wearing different clothes: a person has
+      something specific in mind, and a business needs it exactly. The only thing standing
+      between them is communication.
+    </p>
+    <ul class="venues">
+      <li><span class="v-n">Drive-throughs</span><span class="v-d">Noise, a low-fidelity speaker, and a queue behind you.</span></li>
+      <li><span class="v-n">Counters &amp; cafés</span><span class="v-d">A busy room, an accent either way, and a line that makes repeating yourself expensive.</span></li>
+      <li><span class="v-n">Hotels</span><span class="v-d">Requests that matter — accessibility, allergies, a late arrival — made in a second language at midnight.</span></li>
+      <li><span class="v-n">Airports</span><span class="v-d">You are, by definition, somewhere your language may not be spoken.</span></li>
+      <li><span class="v-n">Retail</span><span class="v-d">Specifics: the size, the variant, the exact thing rather than the nearest thing.</span></li>
+      <li><span class="v-n">Hospitals &amp; pharmacies</span><span class="v-d">Where being misunderstood carries the highest cost of anywhere on this list.</span></li>
+      <li><span class="v-n">Stadiums &amp; venues</span><span class="v-d">Loud by design, timed by an interval, and impossible to negotiate through.</span></li>
+      <li><span class="v-n">Government service desks</span><span class="v-d">Where the person least able to be heard is often the one who most needs to be.</span></li>
+    </ul>
+    <p class="everywhere-close">
+      Spling is not a food-ordering app that might expand. It is a communication layer, and
+      <strong>ordering is simply the first thing we pointed it at</strong> — because it is
+      the highest-volume, most-measurable version of the same problem.
+    </p>
+  </section>
+
+  <!-- Context loads itself -->
+  <section class="g ink" id="context" aria-labelledby="context-h">
+    <div class="catch" aria-hidden="true">05 — Context</div>
+    <h2 id="context-h" class="who-h">You arrive. It already knows.</h2>
+    <p class="who-lead">
+      The hardest part of being understood is everything you have to establish first.
+    </p>
+    <ul class="who-list">
+      <li><strong>Where you are, and which business you’re at</strong> — so you are not
+      searching for a merchant while standing in front of them.</li>
+      <li><strong>What they actually offer right now</strong> — the live menu or services,
+      not last season’s.</li>
+      <li><strong>Your language</strong> — already set, never asked for again.</li>
+      <li><strong>Your communication profile</strong> — already applied, never re-explained.</li>
+      <li><strong>Your dietary and accessibility requirements</strong> — enforced before
+      anything can go wrong, not recited by you under time pressure.</li>
+      <li><strong>Your preferences</strong> — what you order, what you send back, what you
+      never want again.</li>
+    </ul>
+    <p class="who-close">
+      Location is only the trigger. Anyone can draw a circle on a map — the circle is not
+      the innovation. <strong>The context that loads inside it is.</strong> The measure of
+      this working is that nothing has to be established twice, ever again.
+    </p>
+  </section>
+
   <!-- Every hop loses something — the fidelity argument -->
   <section class="g" id="hops" aria-labelledby="hops-h">
-    <div class="catch" aria-hidden="true">04 — Why it comes out right</div>
+    <div class="catch" aria-hidden="true">06 — Why it comes out right</div>
     <h2 id="hops-h">Every hop loses something.</h2>
     <p class="rows-lead">
       An order isn’t one event, it’s a relay. Each hand-off is a chance to lose a
@@ -1646,7 +1777,7 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
 
   <!-- 03 · Who this is for — accessibility, stated first and plainly -->
   <section class="g ink" id="who" aria-labelledby="who-h">
-    <div class="catch" aria-hidden="true">05 — Who this is for</div>
+    <div class="catch" aria-hidden="true">07 — Who this is for</div>
     <h2 id="who-h" class="who-h">Built for the people communication fails.</h2>
     <p class="who-lead">
       Not the speaker — the whole chain. Speech, hearing, language, literacy,
@@ -1683,49 +1814,70 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
 
   <!-- 04 · The three things only Spling does -->
   <section class="g" id="travels" aria-labelledby="rows-h">
-    <div class="catch" aria-hidden="true">06 — What only Spling does</div>
+    <div class="catch" aria-hidden="true">08 — What only Spling does</div>
     <h2 id="rows-h">Three things nobody else is building.</h2>
     <p class="rows-lead">
-      Ordering, payments and reservations are solved — Spling rides those rails rather
-      than rebuilding them. These three are the product.
+      Ordering, payments, reservations and merchant integrations are becoming commodity
+      infrastructure. We inherit them wherever they exist — they are not the advantage.
+      <strong>These three are.</strong>
     </p>
     <ul class="rows">
       <li class="row">
         <span class="num" aria-hidden="true">01</span>
         <div class="rbody">
-          <div class="rt"><span class="tag" aria-hidden="true">Moat</span><h3>Language conversion, at the moment the order is composed</h3></div>
-          <p>Not translated text — a validated order. You compose in your language; the
-          register receives exact line items in its own. The system may only emit real
-          catalogue items, real modifiers, real quantities, checked against that merchant’s
-          live menu. It cannot invent a dish, mishear a size, or pass along free text.
-          <strong>That constraint is what makes accuracy possible where voice fails.</strong></p>
+          <div class="rt"><span class="tag" aria-hidden="true">Moat</span><h3>Language composition</h3></div>
+          <p>You communicate in whatever language you naturally use. Spling does not merely
+          translate what you said — translation is another lossy hop, and it still leaves a
+          sentence for someone to interpret.</p>
+          <p>It composes a <strong>validated structured transaction that matches the
+          business’s live system</strong>: real items, real modifiers, real quantities,
+          checked against what they actually offer right now. They receive exactly what
+          their system understands. It cannot invent something, mishear a size, or pass
+          along free text — and that constraint is what makes accuracy possible where
+          speech fails.</p>
         </div>
       </li>
       <li class="row">
         <span class="num" aria-hidden="true">02</span>
         <div class="rbody">
-          <div class="rt"><span class="tag" aria-hidden="true">Moat</span><h3>A profile that remembers, and knows you</h3></div>
-          <p>How you communicate, what you’re allergic to, what you order, what you sent
-          back — recorded once, applied at every merchant and on every assistant. So “the
-          usual” is a real instruction, not a hope. So a place you’ve never been can be
-          ordered from as confidently as your regular one.</p>
-          <p>It holds the negatives too, which is the part that matters: what you didn’t
-          finish, what was too hot, what you never order twice. Ask it to surprise you and
-          it can — inside your allergens, near what you already like, never the thing you
-          sent back last time. And an anaphylaxis allergen never depends on you remembering
-          to mention it: the item is blocked before the order exists.</p>
+          <div class="rt"><span class="tag" aria-hidden="true">Moat</span><h3>The communication profile</h3></div>
+          <p><strong>Speech is optional.</strong> A speech difference, deafness, aphasia,
+          autism, anxiety, a temporary injury, or simply being impossible to hear over bad
+          audio — Spling carries that profile everywhere you go, along with your language,
+          your allergens and what you actually like.</p>
+          <p><strong>You never have to explain yourself again.</strong> Not at a new
+          counter, not in a new city, not to a new assistant. It holds the negatives too —
+          what you sent back, what you never order twice — so “the usual” is a real
+          instruction and a surprise stays inside your allergens. An anaphylaxis allergen
+          never depends on you remembering to mention it: it is blocked before the
+          transaction exists.</p>
         </div>
       </li>
       <li class="row">
         <span class="num" aria-hidden="true">03</span>
         <div class="rbody">
-          <div class="rt"><span class="tag" aria-hidden="true">Moat</span><h3>An accuracy ledger that finally connects both halves</h3></div>
-          <p>What you ordered, and what actually arrived — tied to the merchant, the
-          location and the item, accumulating over time into a real accuracy record per
-          restaurant. Today the payment processor sees the ticket and the restaurant sees
-          the complaint, and nobody joins them. <strong>It’s the one thing here that
-          compounds:</strong> every order makes it worth more, and it can’t be
-          back-dated by anyone starting later.</p>
+          <div class="rt"><span class="tag" aria-hidden="true">Moat</span><h3>Accuracy intelligence</h3></div>
+          <p>The valuable asset was never the ordering. It is owning the whole chain:</p>
+          <ol class="chain-of-truth">
+            <li>Intent</li>
+            <li>Structured transaction</li>
+            <li>What the business received</li>
+            <li>What actually arrived</li>
+            <li>The correction</li>
+          </ol>
+          <p>Today the payment processor sees the ticket, the business sees the complaint,
+          and nobody joins them across merchants. Every completed interaction improves the
+          system — and this is <strong>operational intelligence, not reviews.</strong> It
+          answers questions no star rating can:</p>
+          <ul class="questions">
+            <li>Which locations are consistently accurate?</li>
+            <li>Which modifiers fail most often?</li>
+            <li>Which translations create confusion?</li>
+            <li>Which merchants improve over time?</li>
+            <li>Does Spling objectively reduce errors?</li>
+          </ul>
+          <p><strong>This dataset compounds forever</strong>, and nobody starting later can
+          back-date it.</p>
         </div>
       </li>
     </ul>
@@ -1733,7 +1885,7 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
 
   <!-- 04 · Works with -->
   <section class="g" id="works" aria-labelledby="works-h">
-    <div class="catch" aria-hidden="true">07 — One connector, any assistant</div>
+    <div class="catch" aria-hidden="true">09 — One connector, any assistant</div>
     <h2 id="works-h" class="visually-hidden">One connector, any assistant</h2>
     <p class="works-intro" aria-hidden="true">Works with</p>
     <p class="works-name" aria-hidden="true"><span class="mask"><span class="mline">Claude</span></span></p>
@@ -1775,7 +1927,7 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
 
   <!-- 07 · What's being built next -->
   <section class="g" id="next" aria-labelledby="next-h">
-    <div class="catch" aria-hidden="true">08 — Being built next</div>
+    <div class="catch" aria-hidden="true">10 — Being built next</div>
     <h2 id="next-h">What comes after the connector</h2>
     <p class="rows-lead">
       None of this is live yet. It’s written down here because it’s what the
@@ -1790,6 +1942,20 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
         you raise it at the counter and it’s verified. No app to find, no screen to
         unlock, no explaining yourself at the window. For a caregiver ordering
         remotely, that hand-off is the whole interaction.</p>
+      </li>
+      <li>
+        <h3>Context that loads before you ask</h3>
+        <p>Arriving somewhere known should be enough. The business, what they offer right
+        now, your language, your profile, your requirements — all present before you open
+        anything. The location is only the trigger; anyone can draw a circle on a map. What
+        loads inside it is the part worth building.</p>
+      </li>
+      <li>
+        <h3>Beyond the menu</h3>
+        <p>The same structured composition applies to a hotel request, a pharmacy counter,
+        an airline desk or a government service window. Wherever a business publishes what
+        it offers, Spling can compose an exact request against it — ordering is just the
+        first catalogue we pointed it at.</p>
       </li>
       <li>
         <h3>Menus you’ve programmed already</h3>
