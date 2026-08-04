@@ -7,10 +7,10 @@
 
 <link rel="canonical" href="https://spling.org/" />
 <meta name="robots" content="index, follow, max-image-preview:large, max-snippet=-1" />
-<meta name="description" content="Spling lets you order food through your AI assistant — in your own language, without speaking at the point of sale. Works with Claude and ChatGPT. Payment by secure Square checkout; Spling never sees your card." />
+<meta name="description" content="Spling lets you order food through your AI assistant — in your own language, without speaking at the point of sale. One connector for Claude, ChatGPT, and any assistant that speaks MCP: your language, communication profile and history travel with you when you switch. Payment by secure Square checkout; Spling never sees your card." />
 
 <meta property="og:title" content="Spling — Your AI assistant is your mouth" />
-<meta property="og:description" content="Order in your language, without speaking, anywhere. A connector for Claude and ChatGPT." />
+<meta property="og:description" content="Order in your language, without speaking, anywhere. One connector for Claude, ChatGPT, and any assistant that speaks MCP — your profile travels with you." />
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://spling.org/" />
 <meta name="twitter:card" content="summary" />
@@ -194,13 +194,15 @@ header.mast{ padding-top: 34px; }
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  overflow: hidden;
+  flex: none;                         /* never let the dateline squeeze the mark */
 }
 .wordmark img{
   width: 30px; height: 30px;
   border-radius: 50%;
   display: block;
 }
+/* one word, one element — never per-letter spans, which kill the font's kerning */
+.wordmark .wm-mask{ display: inline-block; overflow: hidden; vertical-align: bottom; }
 .wordmark .wl{ display: inline-block; }
 .dateline{
   font-family: var(--mono);
@@ -209,6 +211,9 @@ header.mast{ padding-top: 34px; }
   text-transform: uppercase;
   color: var(--muted);
   text-align: right;
+}
+@media (max-width: 640px){
+  .dateline{ display: none; }         /* the same line is stated in full further down */
 }
 
 /* ——— Hero — the order prints itself ——— */
@@ -253,6 +258,58 @@ header.mast{ padding-top: 34px; }
   color: var(--muted);
   max-width: 34ch;
 }
+
+/* ——— The field: voice → language → structured data ——— */
+.field-wrap{
+  grid-column: wide;
+  margin-top: clamp(2.2rem, 1.8rem + 2vw, 3.4rem);
+  position: relative;
+}
+.field{
+  display: block;
+  width: 100%;
+  height: clamp(200px, 25vw, 320px);
+  touch-action: pan-y;
+}
+.field-legend{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  min-height: 1.2em;
+}
+.field-legend .dot{
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--purple);
+  flex: none;
+}
+.field-legend .lbl{ color: var(--purple); font-weight: 600; }
+.field-legend .hint{ margin-left: auto; opacity: .7; text-transform: none; letter-spacing: .03em; }
+@media (max-width: 640px){
+  .field-legend .hint{ display: none; }   /* no cursor to move on a touch screen */
+}
+/* Motion off → the field is replaced by its end state, stated plainly. */
+.field-static{
+  border: 1px solid var(--hair);
+  border-left: 3px solid var(--purple);
+  padding: clamp(1.3rem, 1rem + 1.4vw, 1.9rem);
+  font-family: var(--mono);
+}
+.field-static .fs-row{
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px;
+  padding: 9px 0; font-size: 0.92rem;
+}
+.field-static .fs-row + .fs-row{ border-top: 1px dashed var(--hair); }
+.field-static .fs-from{ color: var(--muted); }
+.field-static .fs-to{ color: var(--purple); font-weight: 600; }
+html.motion .field-static{ display: none; }
+html:not(.motion) .field,
+html:not(.motion) .field-legend{ display: none; }
 
 /* the exchange */
 .chat{
@@ -597,8 +654,26 @@ html.motion .ticker.paused .track{ animation-play-state: paused; }
   font-size: 1.05rem;
   padding-left: 0.15em;
 }
+#works .works-more{
+  grid-column: wide;
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: clamp(0.95rem, 0.85rem + 0.5vw, 1.15rem);
+  letter-spacing: 0.01em;
+  color: var(--purple);
+  font-weight: 600;
+}
 #works .works-p{ margin-top: 28px; }
-#works .trust{ margin-top: 0.6em; }     /* the trust sentence: never animated */
+.sub-h{
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(1.25rem, 1.1rem + 1vw, 1.6rem);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  margin-top: 2.2em;
+  margin-bottom: 0.5em;
+  text-wrap: balance;
+}
 
 /* ——— Caregiver — the one asymmetric spread ——— */
 #care .care-grid{
@@ -722,8 +797,7 @@ footer.colophon p + p{ margin-top: 0.7em; }
 @keyframes marq    { to { transform: translateX(-50%); } }
 
 html.motion .wordmark .wl{
-  animation: rise 500ms var(--ease-exit) backwards;
-  animation-delay: calc(var(--i) * 60ms);
+  animation: rise 620ms var(--ease-exit) 60ms backwards;
 }
 html.motion .mast-row{ position: relative; border-bottom-color: transparent; }
 html.motion .mast-row::after{
@@ -978,15 +1052,11 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
 
 <header class="mast g">
   <div class="mast-row">
-    <a class="wordmark" href="/" aria-label="Spling"
-      ><img src="assets/Short_logo-removebg.png" alt="" width="30" height="30"
-      ><span><span class="wl" style="--i:0" aria-hidden="true">S</span
-      ><span class="wl" style="--i:1" aria-hidden="true">p</span
-      ><span class="wl" style="--i:2" aria-hidden="true">l</span
-      ><span class="wl" style="--i:3" aria-hidden="true">i</span
-      ><span class="wl" style="--i:4" aria-hidden="true">n</span
-      ><span class="wl" style="--i:5" aria-hidden="true">g</span></span></a>
-    <span class="dateline" aria-hidden="true">A connector for Claude &amp; ChatGPT</span>
+    <a class="wordmark" href="/">
+      <img src="assets/Short_logo-removebg.png" alt="" width="30" height="30">
+      <span class="wm-mask"><span class="wl">Spling</span></span>
+    </a>
+    <span class="dateline" aria-hidden="true">One connector · Any assistant</span>
   </div>
 </header>
 
@@ -999,6 +1069,30 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
       <span class="mask"><span class="mline">is your mouth.<svg viewBox="0 0 220 16" preserveAspectRatio="none" aria-hidden="true" focusable="false"><defs><linearGradient id="ulgrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#0641A9"/><stop offset="0.5" stop-color="#5E3DCC"/><stop offset="1" stop-color="#B639ED"/></linearGradient></defs><path d="M3,11 C 58,4 132,14 217,7" pathLength="1"/></svg></span></span>
     </h1>
     <p class="sub">Order in your language, without speaking, anywhere.</p>
+
+    <!-- The field: the same order rendered as sound, then as language, then as data -->
+    <p class="visually-hidden">
+      An animation shows one order changing form four times. First it is sound:
+      a voice waveform. Then the sound scatters, the way a drive-through speaker
+      loses it. Then the particles reassemble into the words the customer actually
+      said in Hungarian, “nagy lattét zabtejjel”. Then those same particles
+      resolve into the exact line the restaurant’s register receives in English,
+      “1× Large Latte · Oat Milk”, and finally into the pickup code SPL-4B2F.
+      Nothing is lost between the voice and the ticket, because the sound was
+      never the carrier.
+    </p>
+    <div class="field-wrap">
+      <canvas class="field" id="field" aria-hidden="true"></canvas>
+      <p class="field-legend" aria-hidden="true">
+        <span class="dot"></span><span class="lbl" id="field-label">Voice</span>
+        <span class="hint" id="field-hint">Move your cursor through it</span>
+      </p>
+      <div class="field-static" aria-hidden="true">
+        <div class="fs-row"><span class="fs-from" lang="hu">nagy lattét zabtejjel</span><span class="fs-to">1× Large Latte · Oat Milk</span></div>
+        <div class="fs-row"><span class="fs-from">spoken sound</span><span class="fs-to">structured data</span></div>
+        <div class="fs-row"><span class="fs-from">any language</span><span class="fs-to">SPL-4B2F</span></div>
+      </div>
+    </div>
 
     <!-- Screen-reader narration of the exchange -->
     <p class="visually-hidden">
@@ -1158,8 +1252,9 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
         <div class="rbody">
           <div class="rt"><h3>Your profile</h3><span class="tag" aria-hidden="true">Said once</span></div>
           <p>How you communicate, what you’re allergic to, what “the usual” means — said
-          once, applied everywhere. An anaphylaxis allergen doesn’t rely on you remembering
-          to mention it; Spling blocks the item before the order exists.</p>
+          once, applied everywhere, at every merchant and on every assistant. An anaphylaxis
+          allergen doesn’t rely on you remembering to mention it; Spling blocks the item
+          before the order exists.</p>
         </div>
       </li>
       <li class="row">
@@ -1176,18 +1271,42 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
 
   <!-- 04 · Works with -->
   <section class="g" id="works" aria-labelledby="works-h">
-    <div class="catch" aria-hidden="true">04 — Works with</div>
-    <h2 id="works-h" class="visually-hidden">Works with Claude and ChatGPT</h2>
+    <div class="catch" aria-hidden="true">04 — One connector, any assistant</div>
+    <h2 id="works-h" class="visually-hidden">One connector, any assistant</h2>
     <p class="works-intro" aria-hidden="true">Works with</p>
     <p class="works-name" aria-hidden="true"><span class="mask"><span class="mline">Claude</span></span></p>
     <p class="works-and" aria-hidden="true">and</p>
     <p class="works-name" aria-hidden="true"><span class="mask"><span class="mline">ChatGPT</span></span></p>
+    <p class="works-more" aria-hidden="true">— and any assistant that speaks MCP.</p>
     <p class="works-p">
-      Spling is a connector: add it once in your assistant’s settings and it’s there in
-      every conversation after that. Payment happens through a secure Square checkout
-      link on your own screen.
+      Spling isn’t an app you open. It’s one connector, built on MCP — the open standard
+      assistants use to reach outside tools. Add it once and it’s there in every
+      conversation after that, on whichever assistant you happen to be using.
     </p>
-    <p class="trust"><strong>Spling never sees your card.</strong></p>
+
+    <h3 class="sub-h">Your profile isn’t in the assistant. It’s yours.</h3>
+    <p>
+      This is the part that matters. Your language, how you communicate, your allergens,
+      what “the usual” means, every order you’ve ever placed — none of it lives inside
+      Claude or ChatGPT. It lives with you, and it arrives the moment you connect.
+    </p>
+    <p>
+      So when you switch assistants — to whatever is best next year, or whatever your
+      school, workplace, or country puts in front of you — you don’t start over. You
+      don’t re-explain your speech difference to a new machine. You don’t retype your
+      allergens and hope. <strong>You connect, and it already knows.</strong>
+    </p>
+    <p>
+      And it’s exportable, in the open PAM format, any time you want it. Take it and
+      leave. Nothing about Spling holds you here — that’s the whole point of a profile
+      you own.
+    </p>
+
+    <h3 class="sub-h">Payment</h3>
+    <p>
+      Checkout happens through a secure Square link on your own screen.
+      <strong>Spling never sees your card.</strong>
+    </p>
   </section>
 
   <!-- 05 · Caregiver staging -->
@@ -1248,6 +1367,301 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
 </footer>
 
 <script>
+/* ═══════════════════════════════════════════════════════════
+   THE FIELD — one order, four forms.
+   The same ~1200 particles are a voice waveform, then noise,
+   then the Hungarian the customer said, then the English line
+   the register receives, then the pickup code. Nothing is added
+   or removed between states: that IS the argument. The sound was
+   never the carrier.
+
+   Targets are sampled from real glyph rasters, so the type is the
+   type — not a decorative approximation. Voice and noise states
+   recompute their targets every frame; text states are static
+   clouds the particles spring into.
+   ═══════════════════════════════════════════════════════════ */
+window.SplingField = (function () {
+  "use strict";
+
+  var STATES = [
+    { key: "voice", label: "Voice",                    ms: 3400 },
+    { key: "noise", label: "Lost at the speaker",      ms: 1500 },
+    { key: "hu",    label: "What you said",            ms: 2900 },
+    { key: "en",    label: "What the register gets",   ms: 3200 },
+    { key: "code",  label: "Your pickup code",         ms: 2600 }
+  ];
+
+  var canvas, ctx, labelEl, dpr = 1, W = 0, H = 0;
+  var parts = [], N = 0, clouds = {}, idx = 0, tState = 0;
+  var raf = null, last = 0, visible = true, hidden = false, running = false;
+  var mx = -9999, my = -9999, ro = null, io = null;
+
+  /* brand ramp: blue → purple → magenta, precomputed */
+  var RAMP = (function () {
+    var a = [6, 65, 169], b = [94, 61, 204], c = [182, 57, 237], out = [];
+    for (var i = 0; i < 32; i++) {
+      var t = i / 31, from, to, u;
+      if (t < 0.5) { from = a; to = b; u = t / 0.5; } else { from = b; to = c; u = (t - 0.5) / 0.5; }
+      out.push("rgb(" + Math.round(from[0] + (to[0] - from[0]) * u) + "," +
+                        Math.round(from[1] + (to[1] - from[1]) * u) + "," +
+                        Math.round(from[2] + (to[2] - from[2]) * u) + ")");
+    }
+    return out;
+  })();
+
+  /* ---- sample a point cloud from anything drawn on an offscreen canvas ---- */
+  function sample(drawFn, step) {
+    var w = Math.max(1, Math.floor(W)), h = Math.max(1, Math.floor(H));
+    var oc = document.createElement("canvas");
+    oc.width = w; oc.height = h;
+    var o = oc.getContext("2d", { willReadFrequently: true });
+    drawFn(o, w, h);
+    var data;
+    try { data = o.getImageData(0, 0, w, h).data; } catch (e) { return []; }
+    var pts = [];
+    for (var y = 0; y < h; y += step) {
+      for (var x = 0; x < w; x += step) {
+        if (data[(y * w + x) * 4 + 3] > 128) {
+          pts.push(x + (Math.random() - 0.5) * step, y + (Math.random() - 0.5) * step);
+        }
+      }
+    }
+    return pts;
+  }
+
+  /* fit a string to the canvas width, then sample its glyphs */
+  function textCloud(text, family, weight, maxFrac) {
+    var step = W < 560 ? 2 : 3;
+    return sample(function (o, w, h) {
+      var size = Math.min(h * 0.55, w * 0.2);
+      o.textAlign = "center";
+      o.textBaseline = "middle";
+      for (var i = 0; i < 40; i++) {
+        o.font = weight + " " + size + "px " + family;
+        if (o.measureText(text).width <= w * maxFrac) break;
+        size *= 0.94;
+      }
+      o.fillStyle = "#000";
+      o.fillText(text, w / 2, h / 2);
+    }, step);
+  }
+
+  /* evenly resample / pad a flat [x,y,...] list to exactly n points */
+  function fit(flat, n) {
+    var have = flat.length / 2, out = new Float32Array(n * 2);
+    if (!have) { for (var k = 0; k < n; k++) { out[k*2] = W/2; out[k*2+1] = H/2; } return out; }
+    for (var i = 0; i < n; i++) {
+      var s = Math.floor(i * have / n) % have;
+      out[i * 2]     = flat[s * 2]     + (i >= have ? (Math.random() - 0.5) * 3 : 0);
+      out[i * 2 + 1] = flat[s * 2 + 1] + (i >= have ? (Math.random() - 0.5) * 3 : 0);
+    }
+    return out;
+  }
+
+  /* sort a cloud left-to-right so morphs read as the line rewriting itself */
+  function ordered(flat) {
+    var n = flat.length / 2, ix = new Array(n), i;
+    for (i = 0; i < n; i++) ix[i] = i;
+    ix.sort(function (p, q) { return flat[p*2] - flat[q*2]; });
+    var out = new Float32Array(n * 2);
+    for (i = 0; i < n; i++) { out[i*2] = flat[ix[i]*2]; out[i*2+1] = flat[ix[i]*2+1]; }
+    return out;
+  }
+
+  function build() {
+    N = W < 560 ? 1100 : (W < 900 ? 1900 : 2600);
+
+    var disp = "'Bricolage Grotesque', system-ui, sans-serif";
+    var mono = "'Spline Sans Mono', ui-monospace, monospace";
+    /* narrow screens get the shorter phrasing so the glyphs stay big enough
+       to read as type rather than dust */
+    var narrow = W < 620;
+
+    clouds.hu   = ordered(fit(textCloud(narrow ? "lattét zabtejjel" : "nagy lattét zabtejjel", disp, "800", 0.94), N));
+    clouds.en   = ordered(fit(textCloud(narrow ? "Large Latte · Oat" : "1× Large Latte · Oat Milk", mono, "600", 0.94), N));
+    clouds.code = ordered(fit(textCloud("SPL-4B2F", mono, "600", 0.7), N));
+
+    if (!parts.length) {
+      parts = new Array(N);
+      for (var i = 0; i < N; i++) {
+        parts[i] = { x: Math.random() * W, y: H / 2 + (Math.random() - 0.5) * H * 0.5,
+                     vx: 0, vy: 0, tx: 0, ty: 0, ph: Math.random() * 6.283,
+                     s: Math.random() * 2 - 1, c: 0 };
+      }
+    } else if (parts.length !== N) {
+      parts.length = N;
+      for (var j = 0; j < N; j++) {
+        if (!parts[j]) parts[j] = { x: Math.random()*W, y: H/2, vx:0, vy:0, tx:0, ty:0,
+                                    ph: Math.random()*6.283, s: Math.random()*2-1, c: 0 };
+      }
+    }
+    /* colour by index — index tracks x after the left-to-right sort, so the
+       whole field always carries the brand ramp regardless of state */
+    for (var k = 0; k < N; k++) parts[k].c = Math.min(31, Math.floor(k / N * 32));
+  }
+
+  /* ---- per-state targets ---- */
+  function setTargets(state, t) {
+    var i, p;
+    if (state === "voice") {
+      /* An oscilloscope fill, not a line: each particle holds a stable position
+         s ∈ [-1,1] inside the instantaneous amplitude envelope, so the band has
+         real acoustic body and every column breathes independently. */
+      var mid = H / 2, amp = H * 0.44;
+      for (i = 0; i < N; i++) {
+        p = parts[i];
+        var u = i / N;
+        var env = Math.abs(
+              Math.sin(u * 23 + t * 0.0045) * 0.5
+            + Math.sin(u * 51 - t * 0.0033) * 0.26
+            + Math.sin(u * 11 + t * 0.0019) * 0.34
+          ) * (0.45 + 0.55 * Math.abs(Math.sin(u * 2.7 + t * 0.0009)));
+        p.tx = u * W;
+        p.ty = mid + p.s * amp * (0.1 + env);
+      }
+    } else if (state === "noise") {
+      /* the acoustic channel losing it */
+      for (i = 0; i < N; i++) {
+        p = parts[i];
+        p.tx += (Math.random() - 0.5) * 26;
+        p.ty += (Math.random() - 0.5) * 22;
+        p.tx = Math.max(0, Math.min(W, p.tx));
+        p.ty = Math.max(0, Math.min(H, p.ty));
+      }
+    } else {
+      var cl = clouds[state];
+      if (!cl) return;
+      for (i = 0; i < N; i++) { p = parts[i]; p.tx = cl[i*2]; p.ty = cl[i*2+1]; }
+    }
+  }
+
+  function frame(now) {
+    if (!running) return;
+    raf = requestAnimationFrame(frame);
+    if (!visible || hidden) { last = now; return; }
+
+    var dt = Math.min(48, now - last || 16);
+    last = now;
+    tState += dt;
+
+    var st = STATES[idx];
+    if (tState > st.ms) {
+      tState = 0;
+      idx = (idx + 1) % STATES.length;
+      st = STATES[idx];
+      if (labelEl) labelEl.textContent = st.label;
+    }
+
+    if (st.key === "voice" || st.key === "noise") setTargets(st.key, now);
+    else if (tState < dt * 1.5) setTargets(st.key, now);
+
+    var settled = st.key !== "voice" && st.key !== "noise";
+    var k = settled ? 0.052 : 0.15, damp = settled ? 0.84 : 0.72;
+    var R = 78, R2 = R * R;
+
+    ctx.clearRect(0, 0, W, H);
+    var sz = W < 560 ? 2.1 : 2.6, half = sz / 2;
+    var bucket = -1;
+
+    for (var i = 0; i < N; i++) {
+      var p = parts[i];
+      p.vx += (p.tx - p.x) * k;
+      p.vy += (p.ty - p.y) * k;
+
+      var dx = p.x - mx, dy = p.y - my, d2 = dx * dx + dy * dy;
+      if (d2 < R2 && d2 > 0.01) {
+        var d = Math.sqrt(d2), f = (1 - d / R) * 5.5;
+        p.vx += (dx / d) * f;
+        p.vy += (dy / d) * f;
+      }
+
+      p.vx *= damp; p.vy *= damp;
+      p.x += p.vx; p.y += p.vy;
+
+      /* settled clouds breathe so the field never looks frozen */
+      var bx = 0, by = 0;
+      if (settled) {
+        bx = Math.sin(now * 0.0013 + p.ph) * 0.7;
+        by = Math.cos(now * 0.0011 + p.ph) * 0.7;
+      }
+
+      /* particles are index-ordered by colour bucket, so this sets fillStyle
+         ~32 times per frame instead of once per particle */
+      if (p.c !== bucket) { bucket = p.c; ctx.fillStyle = RAMP[bucket]; }
+      ctx.fillRect(p.x + bx - half, p.y + by - half, sz, sz);
+    }
+  }
+
+  function resize() {
+    if (!canvas) return;
+    var rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = rect.width; H = rect.height;
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    build();
+  }
+
+  function onMove(e) {
+    var rect = canvas.getBoundingClientRect();
+    var pt = e.touches ? e.touches[0] : e;
+    mx = pt.clientX - rect.left;
+    my = pt.clientY - rect.top;
+  }
+  function onLeave() { mx = my = -9999; }
+  function onVis() { hidden = document.hidden; if (!hidden) last = performance.now(); }
+
+  function start() {
+    canvas = document.getElementById("field");
+    labelEl = document.getElementById("field-label");
+    if (!canvas || !canvas.getContext || running) return;
+    ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    running = true;
+    resize();
+    if (labelEl) labelEl.textContent = STATES[0].label;
+
+    if (window.ResizeObserver) { ro = new ResizeObserver(resize); ro.observe(canvas); }
+    else window.addEventListener("resize", resize);
+
+    io = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { visible = e.isIntersecting; if (visible) last = performance.now(); });
+    }, { threshold: 0.01 });
+    io.observe(canvas);
+
+    canvas.addEventListener("pointermove", onMove);
+    canvas.addEventListener("pointerleave", onLeave);
+    canvas.addEventListener("touchmove", onMove, { passive: true });
+    canvas.addEventListener("touchend", onLeave);
+    document.addEventListener("visibilitychange", onVis);
+
+    last = performance.now();
+    raf = requestAnimationFrame(frame);
+  }
+
+  function stop() {
+    running = false;
+    if (raf) cancelAnimationFrame(raf), raf = null;
+    if (ro) ro.disconnect(), ro = null;
+    if (io) io.disconnect(), io = null;
+    window.removeEventListener("resize", resize);
+    document.removeEventListener("visibilitychange", onVis);
+    if (canvas) {
+      canvas.removeEventListener("pointermove", onMove);
+      canvas.removeEventListener("pointerleave", onLeave);
+      canvas.removeEventListener("touchmove", onMove);
+      canvas.removeEventListener("touchend", onLeave);
+      if (ctx) ctx.clearRect(0, 0, W, H);
+    }
+    parts = []; clouds = {}; idx = 0; tState = 0;
+  }
+
+  return { start: start, stop: stop };
+})();
+
 /* ═══════════════════════════════════════════════════════════
    Motion controller. Base document is the finished page; this
    script only ADDS motion, and tears it down completely if the
@@ -1451,6 +1865,12 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
     var skip = document.getElementById("skip-anim");
     if (skip) skip.addEventListener("click", finishHero);
 
+    /* the field samples real glyphs — it must wait for the webfonts */
+    if (window.SplingField) {
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(window.SplingField.start);
+      else window.SplingField.start();
+    }
+
     /* PRM flipped to motion mid-visit: don't replay an off-context hero intro */
     if (fromFlip) { finishHero(); return; }
 
@@ -1465,6 +1885,7 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
   }
 
   function disableMotion() {
+    if (window.SplingField) window.SplingField.stop();
     finishHero();                                        /* also removes the window listeners */
     clearTimers();
     if (careTimer) { clearTimeout(careTimer); careTimer = null; }

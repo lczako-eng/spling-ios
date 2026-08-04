@@ -1,0 +1,25 @@
+# Netlify deploy config for spling.org
+# The site is plain static HTML — no build step, no dependencies.
+# Everything served lives in landing/.
+
+[build]
+  publish = "landing"
+  command = ""
+
+# HTML must never be served stale: a cached index.html is why a fresh
+# deploy can look identical in the browser. Assets are fingerprint-free
+# here, so they get a short cache too.
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"
