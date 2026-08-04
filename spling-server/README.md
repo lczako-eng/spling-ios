@@ -10,8 +10,13 @@ of sale.
 
 ## Status
 
-All nine tools are implemented. The composition engine — the part that must never be
-wrong — is covered by 30 tests that run with no network, no database and no install step.
+All nine tools are implemented, across two rails. The composition engine — the part that
+must never be wrong — is covered by 59 tests that run with no network, no database and no
+install step.
+
+The engine is domain-neutral: the same code validates a café order, a hotel booking, a
+pharmacy request and a clinic appointment. `compose_domains_test.ts` proves it, and fails
+if a food-shaped assumption is reintroduced.
 
 **Not yet verified against real money.** The phase gates in `CLAUDE.md` require ten
 consecutive sandbox orders (Phase 2) and ten consecutive non-English orders (Phase 3)
@@ -88,11 +93,14 @@ The model proposes; the validator disposes. Nothing reaches a merchant that
 - `supabase/functions/spling-mcp/`
   - `index.ts` — MCP server: JSON-RPC envelope, auth, the nine tools
   - `compose.ts` — **the composition engine.** Pure, no I/O. The moat.
-  - `square.ts` — catalog → menu, orders, payment links, state mapping
+  - `square.ts` — the POS rail as a provider: catalog → catalogue, orders, payment links
   - `store.ts` — Postgres persistence; strips health-adjacent fields from the audit log
   - `pam.ts` — Portable AI Memory export
   - `*_test.ts` — the suites above
-- `supabase/migrations/001_init.sql` — full schema, all phases, RLS everywhere
+- `supabase/migrations/`
+  - `001_init.sql` — core schema, RLS everywhere
+  - `002_accuracy_intelligence.sql` — the five questions, answerable
+  - `003_offerings.sql` — catalogues for businesses without a POS
 - `docs/BUILD_PLAN.md` — 7 days, 7 checkpoints
 - `docs/WEBSITE_BRIEF.md` — spling.org direction
 

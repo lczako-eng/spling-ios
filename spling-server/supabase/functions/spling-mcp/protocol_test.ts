@@ -62,14 +62,14 @@ const SQUARE_OBJECTS = [
 // ---------------------------------------------------------------------------
 test("buildMenu maps items, variations, modifiers and category", () => {
   const menu = buildMenu("L1", SQUARE_OBJECTS);
-  eq(menu.items.length, 1, "unorderable item excluded");
-  const latte = menu.items[0];
+  eq(menu.offerings.length, 1, "unorderable item excluded");
+  const latte = menu.offerings[0];
   eq(latte.name, "Latte", "name");
   eq(latte.category, "Coffee", "category resolved from CATEGORY object");
-  eq(latte.variations.map((v) => v.id), ["VAR_S", "VAR_L"], "variations");
-  eq(latte.variations[1].price_cents, 550, "integer cents");
-  eq(latte.modifier_lists[0].modifiers.map((m) => m.id), ["MOD_OAT", "MOD_WHOLE"], "modifiers attached");
-  eq(latte.modifier_lists[0].modifiers[1].price_cents, 0, "missing price money is 0, not NaN");
+  eq(latte.variants.map((v) => v.id), ["VAR_S", "VAR_L"], "variants");
+  eq(latte.variants[1].price_cents, 550, "integer cents");
+  eq(latte.option_groups[0].options.map((m) => m.id), ["MOD_OAT", "MOD_WHOLE"], "options attached");
+  eq(latte.option_groups[0].options[1].price_cents, 0, "missing price money is 0, not NaN");
 });
 
 test("buildMenu output feeds compose directly", () => {
@@ -116,11 +116,11 @@ test("mapSquareState covers the states we act on", () => {
 // ---------------------------------------------------------------------------
 test("renderLines omits a meaningless 'Regular' size", () => {
   const menu: Menu = {
-    location_id: "L1", fetched_at: "",
-    items: [{
+    provider: "test", location_id: "L1", kind: "menu", noun: "order", fetched_at: "",
+    offerings: [{
       id: "I", name: "Flat White",
-      variations: [{ id: "V", name: "Regular", price_cents: 500, currency: "CAD" }],
-      modifier_lists: [],
+      variants: [{ id: "V", name: "Regular", price_cents: 500, currency: "CAD" }],
+      option_groups: [],
     }],
   };
   const r = compose({ menu, requested: [{ name_or_id: "Flat White" }] });
@@ -180,7 +180,7 @@ test("index.ts declares exactly the nine specified tools", async () => {
 
 test("no secret is hard-coded anywhere in the function", async () => {
   const fs = await import("node:fs/promises");
-  for (const f of ["index.ts", "square.ts", "store.ts", "compose.ts", "pam.ts", "ledger.ts"]) {
+  for (const f of ["index.ts", "square.ts", "store.ts", "compose.ts", "pam.ts", "ledger.ts", "catalogue.ts", "directory.ts"]) {
     const src = await fs.readFile(new URL(`./${f}`, import.meta.url), "utf8");
     assert(!/EAAA[A-Za-z0-9_-]{10,}/.test(src), `${f} contains what looks like a Square token`);
     assert(!/eyJ[A-Za-z0-9_-]{20,}\./.test(src), `${f} contains what looks like a JWT`);

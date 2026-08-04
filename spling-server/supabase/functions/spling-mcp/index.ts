@@ -17,18 +17,18 @@
 // ============================================================================
 
 import { compose, pickupCode, renderLines, type RequestedItem } from "./compose.ts";
-import {
-  createOrder, createPaymentLink, defaultLocationId, fetchMenu,
-  getOrder, mapSquareState, SquareError,
-} from "./square.ts";
+import { defaultLocationId, getOrder, mapSquareState, SquareError } from "./square.ts";
+import "./square.ts";   // registers the POS rail
 import {
   addCorrection, addDietary, createDraftOrder, ensureMerchant, ensureProfile,
-  getCommunicationProfile, getDietary, getOrderRow, listHistory, logEvent,
+  findMerchant, getCommunicationProfile, getDietary, getOrderRow, listHistory, logEvent,
   merchantAccuracy, patchOrder, removeDietary, updateProfile,
   upsertCommunicationProfile,
 } from "./store.ts";
 import { toPam } from "./pam.ts";
 import { shapeCorrection, InvalidCorrection } from "./ledger.ts";
+import { getProvider, type Catalogue } from "./catalogue.ts";
+import "./directory.ts";   // registers the non-POS rail
 
 const SPLING_BEARER = Deno.env.get("SPLING_BEARER") ?? "";
 const SERVER_VERSION = "0.5.0";
@@ -42,9 +42,10 @@ const TOOLS = [
   {
     name: "get_menu",
     description:
-      "Get the live menu for a merchant location: items, exact prices in cents, and the valid " +
-      "modifiers for each item. Always call this before composing an order. Orders may only " +
-      "contain items and modifiers that appear here.",
+      "Get what a business currently offers at a location — menu items, services, rooms, appointments " +
+      "or seating — with exact prices in cents and the valid options for each. Always call this before " +
+      "composing. A transaction may only contain entries that appear here. The response includes " +
+      "transaction_noun (order / request / booking / appointment): use that word with the user.",
     inputSchema: {
       type: "object",
       properties: {
@@ -95,8 +96,10 @@ const TOOLS = [
   {
     name: "place_order",
     description:
-      "Submit a composed order to the merchant's point of sale and return a secure Square checkout link " +
-      "plus a pickup code. Spling never handles card data. Call only after compose_order returned ok.",
+      "Submit a composed transaction to the business and return a reference code, plus a secure Square " +
+      "checkout link when that business takes payment through Spling. Businesses without a point of " +
+      "sale — a pharmacy, hotel desk or service counter — return a reference and no link, which is " +
+      "correct, not an error. Spling never handles card data. Call only after compose_order returned ok.",
     inputSchema: {
       type: "object",
       required: ["order_id"],
@@ -189,6 +192,16 @@ const TOOLS = [
 
 function idem(): string { return crypto.randomUUID(); }
 
+/**
+ * A location belongs to a rail. Square is the default because it is the first
+ * application; a pharmacy or hotel published through migration 003 resolves to
+ * the directory provider. compose.ts never learns which one it got.
+ */
+async function catalogueFor(locationId: string): Promise<Catalogue> {
+  const merchant = await findMerchant(locationId);
+  return getProvider(merchant?.provider ?? "square").getCatalogue(locationId);
+}
+
 async function resolveLocation(args: Record<string, unknown>): Promise<string> {
   return (args.location_id as string) || await defaultLocationId();
 }
@@ -209,18 +222,20 @@ async function callTool(name: string, args: Record<string, unknown>, req: Reques
     // -----------------------------------------------------------------------
     case "get_menu": {
       const locationId = await resolveLocation(args);
-      const menu = await fetchMenu(locationId);
+      const menu = await catalogueFor(locationId);
       return {
         location_id: menu.location_id,
         fetched_at: menu.fetched_at,
-        note: "Prices are integer cents. Only these items and modifiers may be ordered.",
-        items: menu.items.map((i) => ({
+        catalogue_kind: menu.kind,
+        transaction_noun: menu.noun,
+        note: `Prices are integer cents. Only these entries may be requested. This business takes a ${menu.noun}.`,
+        items: menu.offerings.map((i) => ({
           id: i.id,
           name: i.name,
           category: i.category,
           description: i.description,
-          variations: i.variations.map((v) => ({ id: v.id, name: v.name, price_cents: v.price_cents, currency: v.currency })),
-          modifiers: i.modifier_lists.flatMap((l) => l.modifiers.map((m) => ({ id: m.id, name: m.name, price_cents: m.price_cents }))),
+          variations: i.variants.map((v) => ({ id: v.id, name: v.name, price_cents: v.price_cents, currency: v.currency })),
+          modifiers: i.option_groups.flatMap((l) => l.options.map((m) => ({ id: m.id, name: m.name, price_cents: m.price_cents }))),
         })),
       };
     }
@@ -235,7 +250,7 @@ async function callTool(name: string, args: Record<string, unknown>, req: Reques
 
       const profile = await ensureProfile(authUserId);
       const dietary = await getDietary(profile.id);
-      const menu = await fetchMenu(locationId);
+      const menu = await catalogueFor(locationId);
 
       const result = compose({
         menu,
@@ -292,48 +307,56 @@ async function callTool(name: string, args: Record<string, unknown>, req: Reques
           ok: false,
           error: "wrong_state",
           status: row.status,
-          message: `Order is ${row.status}; only a composed order can be placed.`,
+          message: `This ${row.status} transaction cannot be placed; only a composed one can.`,
         };
       }
 
       const locationId = await resolveLocation(args);
+      const merchant = await findMerchant(locationId);
+      const provider = getProvider(merchant?.provider ?? "square");
       const code = pickupCode();
 
-      const sq = await createOrder(locationId, row.line_items, idem(), code);
-      await logEvent(row.id, "square_order_created", { square_order_id: sq.id, total_cents: sq.total_cents });
+      const submitted = await provider.submit({
+        locationId,
+        lineItems: row.line_items,
+        reference: code,
+        idempotencyKey: idem(),
+        totalCents: row.total_cents,
+      });
 
-      // Square is the source of truth for money. If our arithmetic and theirs
-      // disagree, we stop rather than charge a number we did not calculate.
-      if (sq.total_cents !== row.total_cents) {
-        await patchOrder(row.id, { status: "failed", square_order_id: sq.id });
-        await logEvent(row.id, "total_mismatch", { ours: row.total_cents, square: sq.total_cents });
+      if (submitted.status === "failed") {
+        await patchOrder(row.id, { status: "failed", square_order_id: submitted.external_id });
+        await logEvent(row.id, "total_mismatch", { ours: row.total_cents, rail: submitted.total_cents });
         return {
           ok: false,
           error: "total_mismatch",
-          message: "The merchant's price changed since this order was composed. Compose it again.",
+          message: "The business's price changed since this was composed. Compose it again.",
           ours_cents: row.total_cents,
-          merchant_cents: sq.total_cents,
+          merchant_cents: submitted.total_cents,
         };
       }
 
-      const link = await createPaymentLink(sq.id, idem(), `Spling pickup ${code}`);
       const updated = await patchOrder(row.id, {
-        square_order_id: sq.id,
-        checkout_url: link.url,
+        square_order_id: submitted.external_id,
+        checkout_url: submitted.checkout_url,
         pickup_code: code,
-        status: "payment_pending",
+        status: submitted.status,
       });
-      await logEvent(row.id, "payment_link_created", { pickup_code: code });
+      await logEvent(row.id, "submitted", { provider: provider.name, reference: code, paid_rail: !!submitted.checkout_url });
 
       return {
         ok: true,
         order_id: updated.id,
         pickup_code: code,
-        checkout_url: link.url,
+        checkout_url: submitted.checkout_url,
         total_cents: updated.total_cents,
         currency: updated.currency,
         lines: renderLines(row.line_items),
-        next: "Give the user the checkout link and the pickup code. Spling never sees card details.",
+        // A pharmacy or service desk has no payment leg. Saying so keeps the
+        // assistant from inventing a checkout step that does not exist.
+        next: submitted.checkout_url
+          ? "Give the user the checkout link and the reference code. Spling never sees card details."
+          : "Give the user the reference code. This business takes no payment through Spling — the code is what they show at the counter.",
       };
     }
 
@@ -344,7 +367,7 @@ async function callTool(name: string, args: Record<string, unknown>, req: Reques
       if (!row) return { ok: false, error: "order_not_found" };
 
       let status = row.status;
-      if (row.square_order_id) {
+      if (row.square_order_id) {   // only a POS-backed transaction has live state to sync
         try {
           const sq = await getOrder(row.square_order_id);
           const mapped = mapSquareState(sq?.state, sq?.tenders);
