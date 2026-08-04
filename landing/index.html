@@ -791,6 +791,89 @@ html.motion .ticker.paused .track{ animation-play-state: paused; }
   font-weight: 600;
 }
 #works .works-p{ margin-top: 28px; }
+/* ——— The hop chains — the fidelity argument, as real markup ——— */
+/* the whole section shares one left edge */
+#hops h2, #hops .sub-h, #hops > p{ grid-column: wide; }
+#hops > p{ max-width: 62ch; }
+.chains{
+  grid-column: wide;
+  display: grid;
+  gap: clamp(1.6rem, 1.2rem + 2vw, 2.6rem);
+  margin-top: clamp(1.4rem, 1rem + 1.4vw, 2rem);
+}
+@media (min-width: 860px){
+  .chains{ grid-template-columns: 1fr 1fr; align-items: start; }
+}
+.chain{
+  border-top: 2px solid var(--hair);
+  padding-top: 16px;
+}
+.chain:last-child{ border-top-color: var(--purple); }
+.chain-h{
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(1.05rem, 0.98rem + 0.6vw, 1.25rem);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.chain-n{
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--hair);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+.chain:last-child .chain-n{ color: var(--purple); border-color: var(--purple); }
+.hop-list{
+  list-style: none;
+  counter-reset: hop;
+  border-left: 1px solid var(--hair);
+  padding-left: 18px;
+}
+.hop-list li{
+  position: relative;
+  padding: 9px 0;
+  counter-increment: hop;
+}
+.hop-list li::before{
+  content: "";
+  position: absolute;
+  left: -22px; top: 18px;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.chain:last-child .hop-list li::before{ background: var(--purple); }
+.hop-k{
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 3px;
+}
+.hop-list code{
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  color: var(--ink);
+}
+.hop-list code.bad{ font-weight: 600; text-decoration: line-through; }
+.hop-list code.good{ font-weight: 600; }
+.chain-note{
+  margin-top: 14px;
+  font-size: 0.95rem;
+  color: var(--muted);
+  max-width: 34ch;
+}
+
 /* roadmap list — plain rows, no cards; nothing here is shipped */
 .next-list{ grid-column: wide; list-style: none; }
 .next-list li{
@@ -1507,12 +1590,68 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
     </form>
   </section>
 
+  <!-- Every hop loses something — the fidelity argument -->
+  <section class="g" id="hops" aria-labelledby="hops-h">
+    <div class="catch" aria-hidden="true">04 — Why it comes out right</div>
+    <h2 id="hops-h">Every hop loses something.</h2>
+    <p class="rows-lead">
+      An order isn’t one event, it’s a relay. Each hand-off is a chance to lose a
+      word — and the analogue ones lose the most, because sound is the least
+      reliable thing in the chain. Fewer hops, clearer order. That’s the whole
+      engineering thesis.
+    </p>
+
+    <div class="chains">
+      <div class="chain">
+        <h3 class="chain-h">Spoken at a drive-through <span class="chain-n">7 hops</span></h3>
+        <ol class="hop-list">
+          <li><span class="hop-k">You mean</span><code>large latte, oat milk</code></li>
+          <li><span class="hop-k">You say it</span><code>large latte, oat milk</code></li>
+          <li><span class="hop-k">Through air &amp; engine noise</span><code>large la—e, oat milk</code></li>
+          <li><span class="hop-k">Into the microphone</span><code>large la—e, o— milk</code></li>
+          <li><span class="hop-k">Out of the speaker</span><code>large latte, no milk?</code></li>
+          <li><span class="hop-k">Heard &amp; remembered</span><code>large latte, no milk</code></li>
+          <li><span class="hop-k">Keyed into the till</span><code class="bad">1× Large Latte · No Milk</code></li>
+        </ol>
+        <p class="chain-note">Seven chances to drop a word. You find out at the window.</p>
+      </div>
+
+      <div class="chain">
+        <h3 class="chain-h">Composed with Spling <span class="chain-n">2 hops</span></h3>
+        <ol class="hop-list">
+          <li><span class="hop-k">You mean</span><code>large latte, oat milk</code></li>
+          <li><span class="hop-k">Composed as data</span><code>ITEM_4471 · MOD_OAT · QTY 1</code></li>
+          <li><span class="hop-k">Rendered at the till</span><code class="good">1× Large Latte · Oat Milk</code></li>
+        </ol>
+        <p class="chain-note">No air, no microphone, no speaker, no recall. Nothing to mishear.</p>
+      </div>
+    </div>
+
+    <h3 class="sub-h">The middle isn’t a language. That’s the point.</h3>
+    <p>
+      Spling doesn’t translate your words into the cashier’s words — translation is
+      just another lossy hop. It converts what you meant into <strong>item IDs,
+      modifier IDs and quantities</strong>: a small, exact, wordless format that
+      belongs to no language at all.
+    </p>
+    <p>
+      Every language on earth can enter it, and it comes out the other side as
+      whatever that till speaks. Hungarian in, English out. Thai in, French out.
+      Nothing is “nearly right”, because the middle has no room for nearly — an item
+      either exists on that menu or the order doesn’t leave.
+      <strong>A universal language for one narrow thing, which is exactly why it
+      works.</strong>
+    </p>
+  </section>
+
   <!-- 03 · Who this is for — accessibility, stated first and plainly -->
   <section class="g ink" id="who" aria-labelledby="who-h">
-    <div class="catch" aria-hidden="true">04 — Who this is for</div>
-    <h2 id="who-h" class="who-h">Built for the people the speaker fails.</h2>
+    <div class="catch" aria-hidden="true">05 — Who this is for</div>
+    <h2 id="who-h" class="who-h">Built for the people communication fails.</h2>
     <p class="who-lead">
-      Not as a setting you go and switch on. As the reason the product exists.
+      Not the speaker — the whole chain. Speech, hearing, language, literacy,
+      memory, noise, hurry. Any link can break, and the order breaks with it.
+      That isn’t a setting you switch on. It’s the reason the product exists.
     </p>
 
     <ul class="who-list">
@@ -1530,8 +1669,8 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
     </ul>
 
     <p class="who-close">
-      The spoken drive-through fails a far larger group than “accessibility” usually
-      implies — and for some of them it isn’t a 15% error rate, it’s being shut out of a
+      Between them that is a far larger group than “accessibility” usually implies —
+      and for some of them it isn’t a 15% error rate, it’s being shut out of a
       ninety-second transaction everyone else completes without thinking.
       <strong>Spling removes the requirement, not the difficulty.</strong>
     </p>
@@ -1544,7 +1683,7 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
 
   <!-- 04 · The three things only Spling does -->
   <section class="g" id="travels" aria-labelledby="rows-h">
-    <div class="catch" aria-hidden="true">05 — What only Spling does</div>
+    <div class="catch" aria-hidden="true">06 — What only Spling does</div>
     <h2 id="rows-h">Three things nobody else is building.</h2>
     <p class="rows-lead">
       Ordering, payments and reservations are solved — Spling rides those rails rather
@@ -1565,12 +1704,16 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
       <li class="row">
         <span class="num" aria-hidden="true">02</span>
         <div class="rbody">
-          <div class="rt"><span class="tag" aria-hidden="true">Moat</span><h3>A communication profile that belongs to you</h3></div>
-          <p>Speech difference, deafness, non-verbal status, allergens, how you want to be
-          met — recorded once, applied at every merchant and on every assistant. Plenty of
-          tools remember your preferences. None of them treat how you communicate as a
-          portable part of ordering. An anaphylaxis allergen never depends on you
-          remembering to mention it: the item is blocked before the order exists.</p>
+          <div class="rt"><span class="tag" aria-hidden="true">Moat</span><h3>A profile that remembers, and knows you</h3></div>
+          <p>How you communicate, what you’re allergic to, what you order, what you sent
+          back — recorded once, applied at every merchant and on every assistant. So “the
+          usual” is a real instruction, not a hope. So a place you’ve never been can be
+          ordered from as confidently as your regular one.</p>
+          <p>It holds the negatives too, which is the part that matters: what you didn’t
+          finish, what was too hot, what you never order twice. Ask it to surprise you and
+          it can — inside your allergens, near what you already like, never the thing you
+          sent back last time. And an anaphylaxis allergen never depends on you remembering
+          to mention it: the item is blocked before the order exists.</p>
         </div>
       </li>
       <li class="row">
@@ -1590,7 +1733,7 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
 
   <!-- 04 · Works with -->
   <section class="g" id="works" aria-labelledby="works-h">
-    <div class="catch" aria-hidden="true">06 — One connector, any assistant</div>
+    <div class="catch" aria-hidden="true">07 — One connector, any assistant</div>
     <h2 id="works-h" class="visually-hidden">One connector, any assistant</h2>
     <p class="works-intro" aria-hidden="true">Works with</p>
     <p class="works-name" aria-hidden="true"><span class="mask"><span class="mline">Claude</span></span></p>
@@ -1632,7 +1775,7 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
 
   <!-- 07 · What's being built next -->
   <section class="g" id="next" aria-labelledby="next-h">
-    <div class="catch" aria-hidden="true">07 — Being built next</div>
+    <div class="catch" aria-hidden="true">08 — Being built next</div>
     <h2 id="next-h">What comes after the connector</h2>
     <p class="rows-lead">
       None of this is live yet. It’s written down here because it’s what the
