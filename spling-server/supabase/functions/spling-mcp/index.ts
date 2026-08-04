@@ -28,6 +28,7 @@ import {
   upsertCommunicationProfile,
 } from "./store.ts";
 import { toPam } from "./pam.ts";
+import { shapeCorrection, InvalidCorrection } from "./ledger.ts";
 
 const SPLING_BEARER = Deno.env.get("SPLING_BEARER") ?? "";
 const SERVER_VERSION = "0.5.0";
@@ -451,23 +452,51 @@ async function callTool(name: string, args: Record<string, unknown>, req: Reques
       const row = await getOrderRow(String(args.order_id ?? ""), profile.id);
       if (!row) return { ok: false, error: "order_not_found" };
 
+      // Pin the complaint to the line item and modifier that actually failed.
+      // An unattributed correction still gets recorded; it is simply worth less
+      // later, and we would rather store that honestly than guess a link.
+      let shaped;
+      try {
+        shaped = shapeCorrection(
+          {
+            kind: String(args.kind),
+            item_name: args.item_name as string,
+            received: args.received as string,
+            note: args.note as string,
+          },
+          row.line_items,
+        );
+      } catch (e) {
+        if (e instanceof InvalidCorrection) return { ok: false, error: "invalid_correction", message: e.message };
+        throw e;
+      }
+
       await addCorrection({
         order_id: row.id,
         profile_id: profile.id,
         merchant_id: row.merchant_id,
-        item_name: (args.item_name as string) ?? null,
-        kind: String(args.kind),
         ordered: row.line_items,
-        received: args.received ?? null,
-        note: (args.note as string) ?? null,
+        ...shaped,
       });
-      await logEvent(row.id, "correction_filed", { kind: args.kind, item_name: args.item_name ?? null });
+      await logEvent(row.id, "correction_filed", {
+        kind: shaped.kind,
+        item_name: shaped.item_name,
+        modifier_name: shaped.modifier_name,
+        attributed: shaped.line_item_index !== null,
+      });
 
-      const accuracy = await merchantAccuracy(row.merchant_id).catch(() => null);
+      const acc = await merchantAccuracy(row.merchant_id).catch(() => null);
       return {
         ok: true,
-        message: "Recorded against this merchant and item.",
-        merchant_accuracy: accuracy?.[0] ?? null,
+        message: shaped.line_item_index === null
+          ? "Recorded against this merchant. It was not tied to a specific item, so tell us which one if you can — that is what makes the record useful later."
+          : `Recorded against ${shaped.item_name}${shaped.modifier_name ? ` (${shaped.modifier_name})` : ""} at this location.`,
+        attributed_to: {
+          item: shaped.item_name,
+          modifier: shaped.modifier_name,
+          line_item_index: shaped.line_item_index,
+        },
+        merchant_accuracy: acc?.[0] ?? null,
       };
     }
 

@@ -174,8 +174,13 @@ export async function addCorrection(input: {
   order_id: string;
   profile_id: string;
   merchant_id: string;
-  item_name?: string | null;
   kind: string;
+  item_name?: string | null;
+  /** Set by ledger.ts so failures can be counted per catalogue entry (002). */
+  line_item_index?: number | null;
+  catalog_object_id?: string | null;
+  modifier_name?: string | null;
+  modifier_object_id?: string | null;
   ordered?: unknown;
   received?: unknown;
   note?: string | null;
