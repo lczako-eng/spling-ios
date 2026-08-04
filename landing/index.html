@@ -14,6 +14,9 @@
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://spling.org/" />
 <meta name="twitter:card" content="summary" />
+<meta property="og:image" content="https://spling.org/assets/Short_logo-removebg.png" />
+<meta name="twitter:image" content="https://spling.org/assets/Short_logo-removebg.png" />
+<meta name="theme-color" content="#F5F3EE" />
 
 <link rel="icon" type="image/png" href="assets/Short_logo-removebg.png" />
 
@@ -22,32 +25,50 @@
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Spline+Sans+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
 <style>
-/* ————————————————————————————————————————————
-   Spling — spling.org
-   Ink #1D1B16 · Paper #FBF9F4 · Green #1E6B4F
-   Amber #E8A33D (once — the pickup code) · Bubble #ECE8DF
-   No gradients. The order card is the only saturated object.
-———————————————————————————————————————————— */
+/* ════════════════════════════════════════════════════════════
+   Spling — spling.org · "Composed, not spoken."
+   Brand palette (from the Spling mark): Blue #0641A9 → Purple #5E3DCC →
+   Magenta #B639ED, on Ink #0B0A12 / Paper #F5F3EE.
+   Magenta appears exactly once — on the pickup code.
+   No gradients. Base CSS is the FINAL frame: no JS, old browsers,
+   and prefers-reduced-motion all get the complete calm document.
+   JS adds html.motion (and html.io when scroll timelines are
+   unsupported); every pre-animation state lives under those classes.
+   ════════════════════════════════════════════════════════════ */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root{
-  --ink:    #1D1B16;
-  --paper:  #FBF9F4;
-  --green:  #1E6B4F;
-  --amber:  #E8A33D;
-  --bubble: #ECE8DF;
-  --muted:  #55514A;   /* AAA on paper */
-  --hair:   rgba(29,27,22,.14);
+  /* Spling brand — the logo's gradient family */
+  --ink:    #0B0A12;
+  --paper:  #F5F3EE;
+  --blue:   #0641A9;
+  --purple: #5E3DCC;
+  --magenta:#B639ED;
+  --bubble: #ECE9F6;                  /* lavender tint */
+  --muted:  #4C4964;                  /* AAA on paper */
+  --hair:   rgba(11,10,18,.14);
+  --hair-p: rgba(245,243,238,.22);
+  --grad:   linear-gradient(150deg, var(--blue), var(--purple) 58%, #8A48E0);
   --display:'Bricolage Grotesque', system-ui, sans-serif;
   --body:   'Atkinson Hyperlegible', system-ui, sans-serif;
   --mono:   'Spline Sans Mono', ui-monospace, monospace;
+
+  /* type scale */
+  --t-hero:     clamp(2.9rem, 1.7rem + 6.2vw, 6.6rem);
+  --t-manifesto:clamp(1.5rem, 1.1rem + 2.6vw, 2.6rem);
+  --t-bigline:  clamp(2.2rem, 1.4rem + 5.6vw, 5rem);
+  --t-h2:       clamp(1.75rem, 1.3rem + 2.6vw, 2.75rem);
+  --t-row:      clamp(1.4rem, 1.15rem + 1.6vw, 2rem);
+  --t-works:    clamp(2rem, 1.4rem + 4vw, 4.5rem);
+  --t-numeral:  clamp(5rem, 3.4rem + 9vw, 11rem);
+
+  --ease-exit:  cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-stamp: cubic-bezier(0.34, 1.4, 0.64, 1);
+
+  --grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.55'/></svg>");
 }
 
 html { scroll-behavior: smooth; }
-@media (prefers-reduced-motion: reduce){
-  html { scroll-behavior: auto; }
-  *, *::before, *::after { animation: none !important; transition: none !important; }
-}
 
 body{
   font-family: var(--body);
@@ -55,17 +76,19 @@ body{
   line-height: 1.65;
   background: var(--paper);
   color: var(--ink);
+  overflow-x: clip;
 }
 
-::selection{ background: var(--green); color: var(--paper); }
+::selection{ background: var(--purple); color: var(--paper); }
 
-a{ color: var(--green); text-decoration: underline; text-underline-offset: 3px; }
-a:hover{ text-decoration-thickness: 2px; }
+a{ color: inherit; text-decoration: underline; text-decoration-color: var(--purple); text-underline-offset: 3px; text-decoration-thickness: 2px; transition: text-decoration-thickness 150ms; }
+a:hover{ text-decoration-thickness: 3px; }
 a:focus-visible, button:focus-visible, [tabindex]:focus-visible{
-  outline: 3px solid var(--ink);
+  outline: 3px solid var(--purple);
   outline-offset: 3px;
   border-radius: 4px;
 }
+.ink a:focus-visible{ outline-color: var(--paper); }
 
 .visually-hidden{
   position: absolute !important;
@@ -82,12 +105,84 @@ a:focus-visible, button:focus-visible, [tabindex]:focus-visible{
   font-weight: 700; text-decoration: none;
 }
 .skip-link:focus{ left: 16px; }
+.skip-anim{ display: none; }        /* shown only under html.motion, before the hero finishes */
+html.motion:not(.hero-played) .skip-anim{ display: block; }
 
-/* ——— Structure: one calm column ——— */
-.col{ max-width: 680px; margin-inline: auto; padding-inline: 24px; }
+/* ——— The armature: one named-line grid, every section declares its width ——— */
+.g{
+  display: grid;
+  grid-template-columns:
+    [full-start] minmax(1.25rem, 1fr)
+    [wide-start] minmax(0, 9rem)
+    [text-start] min(680px, 100% - 2.5rem)
+    [text-end]   minmax(0, 9rem)
+    [wide-end]   minmax(1.25rem, 1fr)
+    [full-end];
+}
+.g > *{ grid-column: text; min-width: 0; }
+.g > .wide{ grid-column: wide; }
+.g > .full{ grid-column: full; }
 
-header.site{
-  padding: 40px 0 0;
+section.g{ padding-block: clamp(4.5rem, 3.5rem + 6vh, 8.5rem); }
+
+/* mono catchword running heads */
+.catch{
+  grid-column: wide;
+  border-top: 2px solid var(--purple);
+  padding-top: 12px;
+  margin-bottom: clamp(2rem, 1.5rem + 2vw, 3.5rem);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--purple);
+}
+.ink .catch{ border-top-color: #A98FE8; color: #C9B6F5; }
+
+/* ——— Ink sections: the brand at night — deep violet-black with a bloom ——— */
+.ink{
+  background: var(--ink);
+  background-image:
+    radial-gradient(120% 70% at 50% 0%, rgba(94,61,204,.42), transparent 62%),
+    radial-gradient(90% 60% at 82% 108%, rgba(182,57,237,.30), transparent 60%);
+  color: var(--paper);
+  position: relative;
+}
+.ink::before{
+  content: "";
+  position: absolute; inset: 0;
+  background-image: var(--grain);
+  opacity: .06;
+  pointer-events: none;
+}
+.ink > *{ position: relative; }
+.ink a{ color: var(--paper); text-decoration-color: #A98FE8; }
+.ink ::selection{ background: var(--paper); color: var(--ink); }
+
+h2{
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: var(--t-h2);
+  letter-spacing: -0.015em;
+  line-height: 1.12;
+  margin-bottom: 20px;
+  text-wrap: balance;
+}
+p + p{ margin-top: 1em; }
+.quiet{ color: var(--muted); }
+strong{ font-weight: 700; }
+
+/* ——— Masthead — editorial, not an app navbar, never sticky ——— */
+header.mast{ padding-top: 34px; }
+.mast-row{
+  grid-column: wide;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--hair);
 }
 .wordmark{
   font-family: var(--display);
@@ -96,33 +191,78 @@ header.site{
   letter-spacing: -0.02em;
   color: var(--ink);
   text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
 }
-.wordmark:focus-visible{ outline-offset: 6px; }
+.wordmark img{
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  display: block;
+}
+.wordmark .wl{ display: inline-block; }
+.dateline{
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: right;
+}
 
-/* ——— Hero ——— */
-.hero{ padding: 56px 0 24px; }
-h1{
+/* ——— Hero — the order prints itself ——— */
+#hero{ padding-block: clamp(3.5rem, 2.5rem + 4vh, 6rem) clamp(4rem, 3rem + 4vh, 7rem); }
+#hero h1{
+  grid-column: wide;
   font-family: var(--display);
   font-weight: 800;
-  font-size: clamp(2.4rem, 7vw, 3.9rem);
-  line-height: 1.04;
-  letter-spacing: -0.025em;
-  max-width: 15ch;
+  font-size: var(--t-hero);
+  line-height: 0.99;
+  letter-spacing: -0.03em;
 }
-.hero .sub{
-  margin-top: 20px;
-  font-size: clamp(1.15rem, 3vw, 1.35rem);
+/* the second line carries the brand */
+@supports (-webkit-background-clip: text) or (background-clip: text){
+  #hero h1 .mask:nth-child(2) .mline{
+    background-image: linear-gradient(96deg, var(--blue) 4%, var(--purple) 46%, var(--magenta) 92%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+.mask{ display: block; overflow: hidden; }
+.mask > .mline{ display: inline-block; }
+/* the underline is an SVG child of the line itself — never a nested text span,
+   which would break the line's background-clip:text gradient */
+#hero h1 .mline{ position: relative; }
+#hero h1 .mline svg{
+  position: absolute; left: 0; right: 0; bottom: -0.02em;
+  width: 100%; height: 0.13em;
+  overflow: visible;
+}
+#hero h1 .mline svg path{
+  fill: none;
+  stroke: url(#ulgrad);
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+#hero .sub{
+  grid-column: wide;                  /* share the headline's left edge */
+  margin-top: 26px;
+  font-size: clamp(1.2rem, 1.05rem + 1vw, 1.5rem);
   color: var(--muted);
   max-width: 34ch;
 }
 
-/* ——— The conversation — the signature ——— */
+/* the exchange */
 .chat{
-  margin: 56px 0 8px;
+  grid-column: wide;                  /* the exchange is a full-width stage, flush left */
+  margin-top: clamp(3rem, 2.4rem + 3vw, 4.5rem);
   display: flex;
   flex-direction: column;
   gap: 18px;
 }
+#hero .chat{ max-width: 780px; }
 .msg{
   max-width: 85%;
   padding: 14px 20px;
@@ -139,6 +279,7 @@ h1{
   align-self: flex-start;
   background: var(--bubble);
   border-bottom-left-radius: 6px;
+  box-shadow: inset 3px 0 0 var(--purple);
 }
 .who{
   display: block;
@@ -149,9 +290,17 @@ h1{
   margin-bottom: 6px;
   opacity: 0.7;
 }
-
-/* Typewriter caret, only while typing */
-.msg.user.typing .line::after{
+.msg .plain{ display: none; }            /* typewriter target — motion only */
+.tok{
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.95em;
+  background: var(--bubble);
+  color: var(--ink);
+  border-radius: 6px;
+  padding: 0 7px;
+}
+.msg.user.typing .plain::after{
   content: "";
   display: inline-block;
   width: 2px; height: 1em;
@@ -162,17 +311,21 @@ h1{
 }
 @keyframes caret{ 50% { opacity: 0; } }
 
-/* Order card — the receipt you actually get. The only saturated object. */
+/* the receipt — the brand gradient, worn like the logo */
 .order-card{
   align-self: flex-start;
-  width: min(400px, 92%);
-  margin-left: 8px;
-  background: var(--green);
-  color: var(--paper);
+  width: min(400px, 96%);
+  background: var(--purple);
+  background-image: var(--grad);
+  color: #fff;
   border-radius: 14px;
   padding: 22px 24px;
   font-family: var(--mono);
-  box-shadow: 0 14px 34px -18px rgba(29,27,22,.45);
+  box-shadow: 0 26px 70px -22px rgba(94,61,204,.75), 0 4px 14px -6px rgba(94,61,204,.4);
+  transform: rotate(-1.5deg);
+}
+@media (min-width: 760px){
+  .order-card{ width: 420px; }
 }
 .order-card .shop{
   font-size: 0.78rem;
@@ -181,161 +334,686 @@ h1{
   opacity: 0.85;
 }
 .order-card .item{
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  margin-top: 14px;
-  font-size: 1rem;
+  display: flex; justify-content: space-between; gap: 16px;
+  margin-top: 14px; font-size: 1rem;
 }
-.order-card .mods{
-  font-size: 0.88rem;
-  opacity: 0.85;
-  margin-top: 2px;
-}
+.order-card .mods{ font-size: 0.88rem; opacity: 0.85; margin-top: 2px; }
 .order-card .rule{
   border: 0;
-  border-top: 1px dashed rgba(251,249,244,.4);
+  border-top: 2px dashed rgba(255,255,255,.45);
   margin: 16px 0;
 }
 .order-card .total{
-  display: flex;
-  justify-content: space-between;
-  font-weight: 600;
-  font-size: 1.05rem;
+  display: flex; justify-content: space-between;
+  font-weight: 600; font-size: 1.05rem;
 }
-.order-card .paid{
-  margin-top: 6px;
-  font-size: 0.82rem;
-  opacity: 0.85;
-}
+.order-card .paid{ margin-top: 6px; font-size: 0.82rem; opacity: 0.85; }
 .pickup{
   margin-top: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  background: var(--amber);           /* amber appears exactly once */
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: var(--magenta);          /* the accent: exactly once on this page */
   color: var(--ink);
   border-radius: 9px;
   padding: 10px 16px;
   font-weight: 600;
 }
-.pickup .code{
-  font-size: 1.3rem;
-  letter-spacing: 0.12em;
+.pickup .code{ font-size: 1.3rem; letter-spacing: 0.12em; }
+.pickup .lbl{ font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; }
+.hero-close{ grid-column: wide; margin-top: 30px; max-width: 46ch; }
+
+/* flying token chips (motion only; created by JS) */
+.fly-chip{
+  position: fixed; z-index: 50;
+  font-family: var(--mono);
+  font-size: calc(0.95 * 1.125rem);   /* match the in-bubble token size exactly */
+  background: var(--bubble);
+  color: var(--ink);
+  border-radius: 6px;
+  padding: 0 7px;
+  pointer-events: none;
+  will-change: transform, opacity;
 }
-.pickup .lbl{
+
+/* ——— Language ticker — the input channel is every language ——— */
+.ticker{
+  position: relative;
+  border-top: 2px solid var(--purple);
+  border-bottom: 2px solid var(--purple);
+  padding-block: clamp(1.6rem, 1.2rem + 1.6vw, 2.6rem);
+  overflow: hidden;
+}
+.tick-pause{
+  display: none;                      /* only exists when the marquee does */
+  position: absolute;
+  right: 12px; top: 8px; z-index: 2;
+  font-family: var(--mono);
   font-size: 0.72rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+  color: var(--muted);
+  background: var(--paper);
+  border: 1px solid var(--hair);
+  border-radius: 999px;
+  padding: 6px 14px;
+  cursor: pointer;
 }
-
-/* Animation states — JS adds .play; without JS or with reduced motion,
-   everything is simply visible. */
-.chat.play .msg.assistant,
-.chat.play .order-card{ opacity: 0; transform: translateY(10px); }
-.chat.play .msg.assistant.in,
-.chat.play .order-card.in{
-  opacity: 1; transform: none;
-  transition: opacity .5s ease, transform .5s ease;
-}
-.chat.play .order-card.in{ transition-duration: .65s; }
-
-/* ——— Prose sections ——— */
-section{ padding: 44px 0; }
-section + section{ border-top: 1px solid var(--hair); }
-
-h2{
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: clamp(1.5rem, 4vw, 1.9rem);
-  letter-spacing: -0.015em;
-  line-height: 1.15;
-  margin-bottom: 18px;
-  max-width: 24ch;
-}
-p + p{ margin-top: 1em; }
-.quiet{ color: var(--muted); }
-
-strong{ font-weight: 700; }
-
-/* Three short rows — not a card grid */
-.rows{ list-style: none; }
-.rows li{ padding: 22px 0; }
-.rows li + li{ border-top: 1px solid var(--hair); }
-.rows h3{
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 1.25rem;
-  margin-bottom: 6px;
-}
-
-/* Works-with line */
-.works{
+html.motion .tick-pause{ display: inline-block; }
+html.motion .ticker.paused .track{ animation-play-state: paused; }
+.ticker .track{
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 10px 22px;
+  justify-content: center;
+  column-gap: 0;
+  row-gap: 0.4em;
+}
+.ticker ul{
+  list-style: none;
+  display: contents;                    /* static: items wrap into calm rows */
+}
+.ticker ul.dup{ display: none; }
+.ticker li{
   font-family: var(--display);
   font-weight: 700;
-  font-size: 1.3rem;
+  font-size: clamp(1.2rem, 0.95rem + 1.6vw, 1.9rem);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
 }
-.works .and{ font-family: var(--body); font-weight: 400; color: var(--muted); font-size: 1rem; }
+.ticker li::after{
+  content: "·";
+  margin-inline: 0.75em;
+  color: var(--muted);
+}
+.ticker ul li:last-child::after{ content: none; }
+@media (max-width: 700px){
+  .ticker .track{ flex-direction: column; align-items: center; row-gap: 0.55em; }
+  .ticker li{ white-space: normal; text-align: center; }
+  .ticker li::after{ content: none; }
+}
 
-/* Caregiver mini-exchange */
-.chat.mini{ margin: 30px 0 0; gap: 12px; }
-.chat.mini .msg{ font-size: 1rem; }
+/* ——— The deletion — one sticky ink scene ——— */
+.del-wrap{ grid-column: full; }
+.del-stage{
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: clamp(1.4rem, 1rem + 2vh, 2.6rem);
+  padding: clamp(2rem, 4vh, 4rem) 1.25rem;
+  min-height: 60vh;
+  text-align: center;
+}
+.manifesto{
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: var(--t-manifesto);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  max-width: 22ch;
+  text-wrap: balance;
+}
+.strike-wrap{ position: relative; white-space: nowrap; }
+.strike{
+  position: absolute;
+  left: -2%; right: -2%;
+  top: 54%;
+  height: 3px;
+  background: var(--paper);
+  transform-origin: left center;
+}
+.wavebox{ width: min(720px, 86vw); }
+.wavebox svg{ display: block; width: 100%; height: auto; overflow: visible; }
+.wavebox path{
+  fill: none;
+  stroke: var(--paper);
+  stroke-width: 3;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.wavebox .jitter{ stroke: url(#wavegrad); }   /* the noisy speaker wears the brand gradient; the clean data line is calm paper */
+.wavebox .jitter{ opacity: 0; }         /* base: the noise is already gone */
+.bigline{
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: var(--t-bigline);
+  line-height: 1.02;
+  letter-spacing: -0.025em;
+  max-width: 14ch;
+  text-wrap: balance;
+}
+/* Deliberately solid, not gradient-clipped: these spans carry scroll-driven
+   animations, and a clipped text background does not survive their compositor
+   layers. This is also the page's payoff sentence — maximum legibility wins. */
+.bigline{ color: var(--paper); }
+.bigline .w{ display: inline-block; overflow: hidden; vertical-align: bottom; }
+.bigline .w > span{ display: inline-block; }
+.mini-ticket{
+  width: 250px;
+  border-top: 2px dashed rgba(255,255,255,.45);
+  background: var(--purple);
+  background-image: var(--grad);
+  color: #fff;
+  border-radius: 0 0 10px 10px;
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  padding: 12px 16px 14px;
+  text-align: left;
+}
+.del-close{
+  font-family: var(--mono);
+  font-size: clamp(0.95rem, 0.85rem + 0.5vw, 1.1rem);
+  color: var(--bubble);
+}
+.del-prose{ padding-bottom: clamp(3rem, 2rem + 4vh, 5rem); }
+.del-prose p{ color: var(--paper); }
+.sent{ position: absolute; width: 1px; height: 1px; }   /* IO fallback sentinels */
+
+/* ——— What travels with you — the numbered index ——— */
+#travels h2{ grid-column: wide; }
+.rows{ list-style: none; grid-column: wide; }
+.row{
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(6rem, 13rem) 1fr;
+  gap: 0 1.5rem;
+  padding-block: clamp(2rem, 1.5rem + 2vw, 3.2rem);
+}
+.row::before{
+  content: "";
+  position: absolute; top: 0; left: 0; right: 0;
+  height: 1px;
+  background: var(--hair);
+  transform-origin: left center;
+}
+.row .num{
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: var(--t-numeral);
+  line-height: 0.8;
+  margin-top: -0.32em;
+  color: rgba(94,61,204,.1);
+  user-select: none;
+}
+@supports (-webkit-text-stroke: 1px black){
+  .row .num{
+    color: transparent;
+    -webkit-text-stroke: 1.5px rgba(94,61,204,.4);
+  }
+}
+.row .rt{
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+.row h3{
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: var(--t-row);
+  letter-spacing: -0.01em;
+  margin-bottom: 8px;
+}
+.row .tag{ color: var(--purple); }
+.row .tag{
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.row .rbody{ max-width: 680px; }
+@media (max-width: 719px){
+  .row{ grid-template-columns: 1fr; }
+  .row .num{ font-size: 2rem; line-height: 1; margin: 0 0 6px; }
+  .row .tag{ display: none; }
+}
+
+/* ——— Works with ——— */
+#works .works-intro{
+  grid-column: wide;
+  font-style: italic;
+  color: var(--muted);
+  font-size: 1.15rem;
+}
+#works .works-name{
+  grid-column: wide;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: var(--t-works);
+  line-height: 1.04;
+  letter-spacing: -0.025em;
+}
+@supports (-webkit-background-clip: text) or (background-clip: text){
+  #works .works-name .mline{
+    background-image: linear-gradient(96deg, var(--blue), var(--purple) 58%, var(--magenta));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+#works .works-and{
+  grid-column: wide;
+  font-style: italic;
+  color: var(--muted);
+  font-size: 1.05rem;
+  padding-left: 0.15em;
+}
+#works .works-p{ margin-top: 28px; }
+#works .trust{ margin-top: 0.6em; }     /* the trust sentence: never animated */
+
+/* ——— Caregiver — the one asymmetric spread ——— */
+#care .care-grid{
+  grid-column: wide;
+  container-type: inline-size;
+}
+.care-cols{ display: grid; gap: 2rem; }
+.care-copy{ max-width: 40ch; }
+.care-visual{
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.care-visual .msg{ font-size: 1rem; max-width: 100%; }
 .confirm-chip{
   align-self: flex-end;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-family: var(--mono);
   font-size: 0.95rem;
   font-weight: 600;
-  background: var(--green);
-  color: var(--paper);
+  background: var(--purple);
+  color: #fff;
   border-radius: 999px;
   padding: 10px 22px;
 }
-
-/* Footer */
-footer.site{
-  border-top: 1px solid var(--hair);
-  padding: 40px 0 64px;
-  font-size: 0.95rem;
-  color: var(--muted);
+.confirm-chip .ring{
+  position: absolute; inset: -2px;
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+  opacity: 0;
+  pointer-events: none;
 }
-footer.site p + p{ margin-top: 0.6em; }
-footer.site a{ color: inherit; }
+.confirm-chip svg{ width: 1em; height: 1em; overflow: visible; }
+.confirm-chip svg path{
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+@container (min-width: 56rem){
+  .care-cols{ grid-template-columns: 1.1fr 1fr; align-items: start; }
+  .care-visual{ margin-top: 4.5rem; }
+}
+@supports not (container-type: inline-size){
+  @media (min-width: 900px){
+    .care-cols{ grid-template-columns: 1.1fr 1fr; align-items: start; }
+    .care-visual{ margin-top: 4.5rem; }
+  }
+}
+
+/* ——— Merchant — deliberately the quietest object on the page ——— */
+#merchant .box{
+  border: 1px solid var(--hair);
+  border-left: 3px solid var(--purple);
+  padding: clamp(1.6rem, 1.2rem + 1.6vw, 2.4rem);
+}
+#merchant .box .mtag{
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--purple);
+  margin-bottom: 14px;
+}
+
+/* ——— Footer — the ink colophon ——— */
+footer.colophon{
+  padding-top: clamp(4rem, 3rem + 4vh, 7rem);
+  overflow: hidden;
+  font-size: 0.95rem;
+  line-height: 1.7;
+}
+footer.colophon .fnote{ color: var(--bubble); }
+footer.colophon a{ color: var(--paper); }
+footer.colophon p + p{ margin-top: 0.7em; }
+.prm-note{
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  color: var(--bubble);
+  margin-top: 1.6em !important;
+}
+.ghost{
+  grid-column: full;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(6rem, 24vw, 19rem);
+  line-height: 0.72;
+  letter-spacing: -0.03em;
+  text-align: center;
+  margin-top: clamp(2.5rem, 2rem + 3vh, 4.5rem);
+  margin-bottom: -0.22em;
+  color: rgba(245,243,238,.06);
+  user-select: none;
+}
+@supports (-webkit-text-stroke: 1px black){
+  .ghost{
+    color: transparent;
+    -webkit-text-stroke: 1px rgba(245,243,238,.22);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════
+   MOTION TIER — everything below exists only under html.motion.
+   Base above is the finished document.
+   ════════════════════════════════════════════════════════════ */
+
+/* masthead + hero load choreography (pure CSS, plays once) */
+@keyframes rise    { from { transform: translateY(115%); } }
+@keyframes fade-up { from { opacity: 0; transform: translateY(12px); } }
+@keyframes draw    { from { stroke-dashoffset: 1; } }
+@keyframes printcard{ from { clip-path: inset(0 0 100% 0); transform: translateY(-8px) rotate(-1.5deg); } }
+@keyframes stamp   { 0% { transform: scale(1.35); opacity: 0; } 30% { opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes tapdown { 0%{ transform: scale(1);} 40%{ transform: scale(0.96);} 100%{ transform: scale(1);} }
+@keyframes ringout { 0%{ opacity: 1; transform: scale(1);} 100%{ opacity: 0; transform: scale(1.22);} }
+@keyframes marq    { to { transform: translateX(-50%); } }
+
+html.motion .wordmark .wl{
+  animation: rise 500ms var(--ease-exit) backwards;
+  animation-delay: calc(var(--i) * 60ms);
+}
+html.motion .mast-row{ position: relative; border-bottom-color: transparent; }
+html.motion .mast-row::after{
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px;
+  height: 1px; background: var(--hair);
+  transform-origin: left center;
+  animation: scalex 600ms var(--ease-exit) 200ms backwards;
+}
+@keyframes scalex{ from { transform: scaleX(0); } }
+
+html.motion #hero .mask > .mline{
+  animation: rise 700ms var(--ease-exit) backwards;
+}
+html.motion #hero .mask:nth-child(1) > .mline{ animation-delay: 100ms; }
+html.motion #hero .mask:nth-child(2) > .mline{ animation-delay: 220ms; }
+html.motion #hero h1 .mline svg path{
+  stroke-dasharray: 1;
+  animation: draw 620ms var(--ease-exit) 950ms backwards;
+}
+html.motion #hero .sub{ animation: fade-up 450ms var(--ease-exit) 800ms backwards; }
+
+/* hero chat sequence — driven by JS classes; .hero-played snaps to final */
+html.motion #hero:not(.played) .msg.user{ opacity: 0; transform: translateY(10px); }
+html.motion #hero:not(.played) .msg.user.in{ opacity: 1; transform: none; transition: opacity 450ms var(--ease-exit), transform 450ms var(--ease-exit); }
+html.motion #hero:not(.played) .msg.user .rich{ display: none; }
+html.motion #hero:not(.played) .msg.user .plain{ display: inline; }
+html.motion #hero:not(.played) .msg.user.annotated .rich{ display: inline; }
+html.motion #hero:not(.played) .msg.user.annotated .plain{ display: none; }
+
+html.motion #hero:not(.played) .msg.assistant{ opacity: 0; transform: translateY(12px); }
+html.motion #hero:not(.played) .msg.assistant.in{ opacity: 1; transform: none; transition: opacity 450ms var(--ease-exit), transform 450ms var(--ease-exit); }
+
+html.motion #hero:not(.played) .order-card{ clip-path: inset(0 0 100% 0); }
+html.motion #hero:not(.played) .order-card.print{
+  animation: printcard 700ms steps(14, end) forwards;
+  clip-path: inset(0);
+}
+html.motion #hero:not(.played) .order-card > *{ opacity: 0; }
+html.motion #hero:not(.played) .order-card.print > *{
+  opacity: 1;
+  transition: opacity 90ms linear;
+  transition-delay: calc(var(--r) * 90ms);
+}
+/* the pickup code sits out the print reveal and stamps in as one gesture */
+html.motion #hero:not(.played) .order-card.print > .pickup{ opacity: 0; transition: none; }
+html.motion #hero:not(.played) .order-card.print > .pickup.stamp{
+  opacity: 1;
+  animation: stamp 380ms var(--ease-stamp);
+}
+html.motion #hero:not(.played) .hero-close{ opacity: 0; }
+html.motion #hero:not(.played) .hero-close.in{ opacity: 1; transition: opacity 500ms var(--ease-exit); }
+#hero.played *, #hero.played *::before, #hero.played *::after{
+  animation: none !important;
+  transition: none !important;
+}
+
+/* ticker becomes a marquee */
+html.motion .ticker .track{
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  width: max-content;
+  animation: marq 55s linear infinite;
+}
+html.motion .ticker .track{ flex-direction: row; }
+html.motion .ticker ul{ display: inline-flex; }
+html.motion .ticker ul.dup{ display: inline-flex; }
+html.motion .ticker li{ white-space: nowrap; text-align: left; }
+html.motion .ticker li::after{ content: "·"; margin-inline: 0.75em; color: var(--muted); }
+html.motion .ticker:hover .track,
+html.motion .ticker:focus-within .track{ animation-play-state: paused; }
+
+/* ——— The deletion scene ———
+   Scrub tier: native view-timeline, linear, tracks the finger 1:1.
+   Fallback tier (html.io): three sentinels step .beat-1/2/3.
+   Small screens and base: the static final frame in normal flow. */
+@media (min-width: 640px) and (min-height: 560px){
+  html.motion .del-wrap{ height: 220vh; }
+  html.motion .del-stage{
+    position: sticky; top: 0;
+    height: 100svh;
+    min-height: 0;
+  }
+}
+
+@supports (animation-timeline: view()){
+  @media (min-width: 640px) and (min-height: 560px){
+    html.motion:not(.io) .del-wrap{ view-timeline: --del block; }
+    html.motion:not(.io) .del-stage .p100{
+      opacity: 1;
+      stroke-dasharray: 1;
+      animation:
+        draw   1s linear both,
+        j-out  1s linear both;
+      animation-timeline: --del, --del;
+      animation-range: contain 2% contain 18%, contain 18% contain 28%;
+    }
+    html.motion:not(.io) .del-stage .p70{
+      animation: j-mid 1s linear both;
+      animation-timeline: --del;
+      animation-range: contain 18% contain 38%;
+    }
+    html.motion:not(.io) .del-stage .p40{
+      animation: j-mid 1s linear both;
+      animation-timeline: --del;
+      animation-range: contain 28% contain 47%;
+    }
+    html.motion:not(.io) .del-stage .p15{
+      animation: j-mid 1s linear both;
+      animation-timeline: --del;
+      animation-range: contain 38% contain 55%;
+    }
+    html.motion:not(.io) .del-stage .p0{
+      animation: flatline 1s linear both;
+      animation-timeline: --del;
+      animation-range: contain 47% contain 88%;
+    }
+    html.motion:not(.io) .strike{
+      animation: scalex 1s linear both;
+      animation-timeline: --del;
+      animation-range: contain 50% contain 58%;
+    }
+    html.motion:not(.io) .bigline .w > span{
+      animation: rise 1s linear both;
+      animation-timeline: --del;
+      /* per-word animation-range set inline in the markup */
+    }
+    html.motion:not(.io) .mini-ticket{
+      animation: fade-up 1s linear both;
+      animation-timeline: --del;
+      animation-range: contain 74% contain 90%;
+    }
+    html.motion:not(.io) .del-close{
+      animation: fade-in 1s linear both;
+      animation-timeline: --del;
+      animation-range: contain 91% contain 99%;
+    }
+  }
+}
+@keyframes j-out { to { opacity: 0; } }
+@keyframes j-mid { 0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes flatline{
+  0%   { opacity: 0; transform: none; }
+  18%  { opacity: 1; transform: none; }
+  60%  { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(90px); }
+}
+@keyframes fade-in{ from { opacity: 0; } }
+
+/* deletion scene — IO fallback: quantized beats, same map.
+   Width+height gated exactly like the sticky stage: below the gate,
+   the io tier falls through to the base static frame. */
+@media (min-width: 640px) and (min-height: 560px){
+  html.io .del-stage .p100{ opacity: 1; transition: opacity 500ms var(--ease-exit); }
+  html.io .del-stage .p15,
+  html.io .del-stage .p0{ opacity: 0; transition: opacity 500ms var(--ease-exit); }
+  html.io .del-stage .strike{ transform: scaleX(0); transition: transform 500ms var(--ease-exit); }
+  html.io .del-stage .bigline .w > span{
+    transform: translateY(115%);
+    transition: transform 550ms var(--ease-exit);
+    transition-delay: calc(var(--w, 0) * 70ms);
+  }
+  html.io .del-stage .mini-ticket,
+  html.io .del-stage .del-close{ opacity: 0; transform: translateY(12px); transition: opacity 500ms var(--ease-exit), transform 500ms var(--ease-exit); }
+  html.io .del.beat-1 .p100{ opacity: 0; }
+  html.io .del.beat-1 .p15{ opacity: 1; }
+  html.io .del.beat-2 .p15{ opacity: 0; }
+  html.io .del.beat-2 .p0{ opacity: 1; }
+  html.io .del.beat-2 .strike{ transform: scaleX(1); }
+  html.io .del.beat-2 .bigline .w > span{ transform: none; }
+  html.io .del.beat-3 .p0{ opacity: 0; transform: translateY(90px); }
+  html.io .del.beat-3 .mini-ticket,
+  html.io .del.beat-3 .del-close{ opacity: 1; transform: none; }
+}
+
+/* ——— scroll reveals: rows, works, footer ghost ——— */
+@supports (animation-timeline: view()){
+  html.motion:not(.io) .row{
+    animation: fade-up 1s var(--ease-exit) both;
+    animation-timeline: view();
+    animation-range: entry 10% entry 45%;
+  }
+  html.motion:not(.io) .row::before{
+    animation: scalex 1s var(--ease-exit) both;
+    animation-timeline: view();
+    animation-range: entry 10% entry 50%;
+  }
+  html.motion:not(.io) .row .num{
+    animation: drift 1s linear both;
+    animation-timeline: view();
+    animation-range: cover 0% cover 100%;
+  }
+  html.motion:not(.io) #works .works-name .mline{
+    animation: rise 1s var(--ease-exit) both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 35%;
+  }
+  html.motion:not(.io) #works .works-p{
+    animation: fade-up 1s var(--ease-exit) both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 40%;
+  }
+  html.motion:not(.io) .ghost{
+    animation: drift 1s linear both;
+    animation-timeline: view();
+    animation-range: cover 0% cover 60%;
+  }
+}
+@keyframes drift{ from { transform: translateY(2rem); } }
+
+/* reveals — IO fallback */
+html.io .row,
+html.io #works .works-p{ opacity: 0; transform: translateY(16px); transition: opacity 550ms var(--ease-exit), transform 550ms var(--ease-exit); }
+html.io .row::before{ transform: scaleX(0); transition: transform 550ms var(--ease-exit); }
+html.io #works .works-name .mline{ transform: translateY(115%); transition: transform 650ms var(--ease-exit); }
+html.io .row.in, html.io #works .works-p.in{ opacity: 1; transform: none; }
+html.io .row.in::before{ transform: scaleX(1); }
+html.io #works .works-name.in .mline{ transform: none; }
+html.io .row:nth-child(2).in{ transition-delay: 90ms; }
+html.io .row:nth-child(3).in{ transition-delay: 180ms; }
+
+/* caregiver — IO is the primary mechanism in both tiers */
+html.motion #care .care-visual .msg,
+html.motion #care .confirm-chip{ opacity: 0; transform: translateY(12px); transition: opacity 450ms var(--ease-exit), transform 450ms var(--ease-exit); }
+html.motion #care .care-visual.in .msg,
+html.motion #care .care-visual.in .confirm-chip{ opacity: 1; transform: none; }
+html.motion #care .care-visual.in .confirm-chip{ transition-delay: 600ms; }
+html.motion #care .confirm-chip svg path{ stroke-dasharray: 1; stroke-dashoffset: 1; }
+html.motion #care .care-visual.tap .confirm-chip{ animation: tapdown 240ms var(--ease-stamp); }
+html.motion #care .care-visual.tap .confirm-chip .ring{ animation: ringout 300ms ease-out; }
+html.motion #care .care-visual.tap .confirm-chip svg path{
+  transition: stroke-dashoffset 280ms var(--ease-exit);
+  stroke-dashoffset: 0;
+}
+
+/* ════════════════════════════════════════════════════════════
+   REDUCED MOTION — belt and suspenders. html.motion is never
+   added under PRM, but if anything slips, this kills it dead.
+   ════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce){
+  html { scroll-behavior: auto; }
+  *, *::before, *::after{
+    animation: none !important;
+    transition: none !important;
+  }
+}
 </style>
 </head>
 <body>
 
 <a class="skip-link" href="#main">Skip to content</a>
+<a class="skip-link skip-anim" href="#problem" id="skip-anim">Skip intro animation</a>
 
-<header class="site col">
-  <a class="wordmark" href="/">Spling</a>
+<header class="mast g">
+  <div class="mast-row">
+    <a class="wordmark" href="/" aria-label="Spling"
+      ><img src="assets/Short_logo-removebg.png" alt="" width="30" height="30"
+      ><span><span class="wl" style="--i:0" aria-hidden="true">S</span
+      ><span class="wl" style="--i:1" aria-hidden="true">p</span
+      ><span class="wl" style="--i:2" aria-hidden="true">l</span
+      ><span class="wl" style="--i:3" aria-hidden="true">i</span
+      ><span class="wl" style="--i:4" aria-hidden="true">n</span
+      ><span class="wl" style="--i:5" aria-hidden="true">g</span></span></a>
+    <span class="dateline" aria-hidden="true">A connector for Claude &amp; ChatGPT</span>
+  </div>
 </header>
 
-<main id="main">
+<main id="main" tabindex="-1">
 
-  <!-- 1 · Hero: the conversation, played straight -->
-  <section class="hero col" aria-labelledby="hero-h">
-    <h1 id="hero-h">Your AI assistant is your&nbsp;mouth.</h1>
+  <!-- 01 · Hero — the order prints itself -->
+  <section class="g" id="hero" aria-labelledby="hero-h">
+    <h1 id="hero-h">
+      <span class="mask"><span class="mline">Your AI assistant</span></span>
+      <span class="mask"><span class="mline">is your mouth.<svg viewBox="0 0 220 16" preserveAspectRatio="none" aria-hidden="true" focusable="false"><defs><linearGradient id="ulgrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#0641A9"/><stop offset="0.5" stop-color="#5E3DCC"/><stop offset="1" stop-color="#B639ED"/></linearGradient></defs><path d="M3,11 C 58,4 132,14 217,7" pathLength="1"/></svg></span></span>
+    </h1>
     <p class="sub">Order in your language, without speaking, anywhere.</p>
 
     <!-- Screen-reader narration of the exchange -->
     <p class="visually-hidden">
       Here is what an order looks like. A customer writes to their assistant in
-      Hungarian: “Rendelnél nekem egy nagy lattét zabtejjel?” — would you order me
-      a large latte with oat milk? The assistant replies: “Done — sent to Fern Café.”
-      The café’s register receives the order in English as an exact menu item:
-      one large latte with oat milk, $6.25, paid by secure checkout. The customer
-      gets the pickup code S P L dash 4 B 2 F. No one spoke.
+      Hungarian: <span lang="hu">“Rendelnél nekem egy nagy lattét zabtejjel?”</span> —
+      would you order me a large latte with oat milk? The assistant replies:
+      “Done — sent to Fern Café.” The café’s register receives the order in English
+      as an exact menu item: one large latte with oat milk, $6.25, paid by secure
+      checkout. The customer gets the pickup code S P L dash 4 B 2 F.
     </p>
 
     <div class="chat" id="hero-chat" aria-hidden="true">
       <div class="msg user" id="m-user">
         <span class="who">You · Hungarian</span>
-        <span class="line" lang="hu">Rendelnél nekem egy nagy lattét zabtejjel?</span>
+        <span class="plain" lang="hu"></span><span class="rich" lang="hu">Rendelnél nekem egy <span class="tok" id="tok-1">nagy</span> <span class="tok" id="tok-2">lattét</span> <span class="tok" id="tok-3">zabtejjel</span>?</span>
       </div>
 
       <div class="msg assistant" id="m-assistant">
@@ -344,160 +1022,460 @@ footer.site a{ color: inherit; }
       </div>
 
       <div class="order-card" id="m-card" lang="en">
-        <div class="shop">Fern Café · Order confirmed</div>
-        <div class="item"><span>1× Large Latte</span><span>$6.25</span></div>
-        <div class="mods">Oat Milk</div>
-        <hr class="rule" />
-        <div class="total"><span>Total</span><span>$6.25</span></div>
-        <div class="paid">Paid · Square secure checkout</div>
-        <div class="pickup">
+        <div class="shop" style="--r:0">Fern Café · Order confirmed</div>
+        <div class="item" style="--r:1"><span>1× Large Latte</span><span>$6.25</span></div>
+        <div class="mods" style="--r:2">Oat Milk</div>
+        <hr class="rule" style="--r:3" />
+        <div class="total" style="--r:4"><span>Total</span><span>$6.25</span></div>
+        <div class="paid" style="--r:5">Paid · Square secure checkout</div>
+        <div class="pickup" style="--r:6" id="m-pickup">
           <span class="lbl">Pickup code</span>
           <span class="code">SPL-4B2F</span>
         </div>
       </div>
     </div>
 
-    <p class="quiet" style="margin-top:28px;">
+    <p class="quiet hero-close" id="m-close">
       That’s the whole product. You wrote in your language. The kitchen got exact
       menu items in theirs. No one spoke.
     </p>
   </section>
 
-  <!-- 2 · The problem -->
-  <section class="col" aria-labelledby="problem-h">
-    <h2 id="problem-h">The speaker in traffic is the problem.</h2>
-    <p>
-      A human-run drive-through gets the order right about 85 times in 100. The AI
-      voice systems replacing them currently do a little worse. The reasons aren’t
-      mysterious: road noise, cheap speakers, accents, second languages, speech
-      differences. And if the spoken channel fails you entirely — because you’re
-      deaf, because you use an AAC device, because today your voice won’t cooperate —
-      the error rate isn’t 15%. It’s exclusion from a transaction everyone else
-      finishes in ninety seconds.
+  <!-- The language ticker — the same request, in any language -->
+  <p class="visually-hidden">
+    The same request works in any language — Hungarian, Spanish, French, German,
+    Chinese, Arabic, Vietnamese, Tagalog, Punjabi, Ukrainian, and more.
+  </p>
+  <div class="ticker" id="ticker">
+    <button class="tick-pause" type="button" id="tick-pause" aria-pressed="false">Pause</button>
+    <div class="track" id="ticker-track" aria-hidden="true">
+      <ul>
+        <li lang="hu">Rendelnél nekem egy nagy lattét zabtejjel?</li>
+        <li lang="es">¿Me pides un latte grande con leche de avena?</li>
+        <li lang="fr">Tu peux me commander un grand latte au lait d’avoine&nbsp;?</li>
+        <li lang="de">Bestellst du mir einen großen Latte mit Hafermilch?</li>
+        <li lang="zh-Hant">幫我點一杯大杯燕麥奶拿鐵，好嗎？</li>
+        <li lang="ar"><span dir="rtl">هل تطلب لي لاتيه كبيرًا بحليب الشوفان؟</span></li>
+        <li lang="vi">Đặt giúp mình một ly latte lớn với sữa yến mạch nhé?</li>
+        <li lang="tl">Pwede mo ba akong i-order ng large latte na may oat milk?</li>
+        <li lang="pa">ਮੇਰੇ ਲਈ ਇੱਕ ਵੱਡਾ ਲਾਟੇ ਓਟ ਮਿਲਕ ਨਾਲ ਆਰਡਰ ਕਰੋਗੇ?</li>
+        <li lang="uk">Замовиш мені велике лате з вівсяним молоком?</li>
+      </ul>
+      <ul class="dup" aria-hidden="true">
+        <li lang="hu">Rendelnél nekem egy nagy lattét zabtejjel?</li>
+        <li lang="es">¿Me pides un latte grande con leche de avena?</li>
+        <li lang="fr">Tu peux me commander un grand latte au lait d’avoine&nbsp;?</li>
+        <li lang="de">Bestellst du mir einen großen Latte mit Hafermilch?</li>
+        <li lang="zh-Hant">幫我點一杯大杯燕麥奶拿鐵，好嗎？</li>
+        <li lang="ar"><span dir="rtl">هل تطلب لي لاتيه كبيرًا بحليب الشوفان؟</span></li>
+        <li lang="vi">Đặt giúp mình một ly latte lớn với sữa yến mạch nhé?</li>
+        <li lang="tl">Pwede mo ba akong i-order ng large latte na may oat milk?</li>
+        <li lang="pa">ਮੇਰੇ ਲਈ ਇੱਕ ਵੱਡਾ ਲਾਟੇ ਓਟ ਮਿਲਕ ਨਾਲ ਆਰਡਰ ਕਰੋਗੇ?</li>
+        <li lang="uk">Замовиш мені велике лате з вівсяним молоком?</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 02 · The problem — the deletion -->
+  <section class="g ink del" id="problem" aria-labelledby="problem-h">
+    <div class="catch" aria-hidden="true">02 — The problem</div>
+    <h2 id="problem-h" class="visually-hidden">The speaker in traffic is the problem.</h2>
+
+    <p class="visually-hidden">
+      Everyone else is trying to make the speaker hear better. On screen, a noisy
+      audio waveform flattens into a straight line, striking through the words
+      “the speaker”. The heading “Spling deletes the speaker.” appears, and the
+      flat line becomes the dashed rule of a small printed order ticket reading
+      one large latte, oat milk — sound becoming structured data. Your order is
+      composed as data and arrives as data.
     </p>
-    <p>
-      Everyone else is trying to make the speaker hear better.
-      <strong>Spling deletes the speaker.</strong> Your order is composed as data and
-      arrives as data. Remove the acoustic channel, and every failure mode attached
-      to it goes too. You order. They understand. Every time.
-    </p>
+
+    <div class="del-wrap" id="del-wrap">
+      <div class="del-stage" aria-hidden="true">
+        <p class="manifesto">Everyone else is trying to make
+          <span class="strike-wrap">the speaker<span class="strike"></span></span>
+          hear better.</p>
+
+        <div class="wavebox">
+          <svg viewBox="0 0 720 160" focusable="false">
+            <defs><linearGradient id="wavegrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#7FA0FF"/><stop offset="0.55" stop-color="#C89BFF"/><stop offset="1" stop-color="#DB9CF6"/></linearGradient></defs>
+            <path class="jitter p100" pathLength="1" d="M0.0,80.0 L15.3,62.0 L30.6,110.0 L46.0,38.0 L61.3,104.0 L76.6,24.0 L91.9,118.0 L107.2,60.0 L122.6,132.0 L137.9,46.0 L153.2,96.0 L168.5,20.0 L183.8,124.0 L199.1,54.0 L214.5,138.0 L229.8,42.0 L245.1,102.0 L260.4,32.0 L275.7,110.0 L291.1,66.0 L306.4,120.0 L321.7,26.0 L337.0,106.0 L352.3,44.0 L367.7,130.0 L383.0,58.0 L398.3,92.0 L413.6,36.0 L428.9,114.0 L444.3,22.0 L459.6,100.0 L474.9,50.0 L490.2,126.0 L505.5,64.0 L520.9,118.0 L536.2,28.0 L551.5,108.0 L566.8,40.0 L582.1,98.0 L597.4,30.0 L612.8,112.0 L628.1,56.0 L643.4,136.0 L658.7,44.0 L674.0,94.0 L689.4,52.0 L704.7,88.0 L720.0,80.0"/>
+            <path class="jitter p70" pathLength="1" d="M0.0,80.0 L15.3,67.4 L30.6,101.0 L46.0,50.6 L61.3,96.8 L76.6,40.8 L91.9,106.6 L107.2,66.0 L122.6,116.4 L137.9,56.2 L153.2,91.2 L168.5,38.0 L183.8,110.8 L199.1,61.8 L214.5,120.6 L229.8,53.4 L245.1,95.4 L260.4,46.4 L275.7,101.0 L291.1,70.2 L306.4,108.0 L321.7,42.2 L337.0,98.2 L352.3,54.8 L367.7,115.0 L383.0,64.6 L398.3,88.4 L413.6,49.2 L428.9,103.8 L444.3,39.4 L459.6,94.0 L474.9,59.0 L490.2,112.2 L505.5,68.8 L520.9,106.6 L536.2,43.6 L551.5,99.6 L566.8,52.0 L582.1,92.6 L597.4,45.0 L612.8,102.4 L628.1,63.2 L643.4,119.2 L658.7,54.8 L674.0,89.8 L689.4,60.4 L704.7,85.6 L720.0,80.0"/>
+            <path class="jitter p40" pathLength="1" d="M0.0,80.0 L15.3,72.8 L30.6,92.0 L46.0,63.2 L61.3,89.6 L76.6,57.6 L91.9,95.2 L107.2,72.0 L122.6,100.8 L137.9,66.4 L153.2,86.4 L168.5,56.0 L183.8,97.6 L199.1,69.6 L214.5,103.2 L229.8,64.8 L245.1,88.8 L260.4,60.8 L275.7,92.0 L291.1,74.4 L306.4,96.0 L321.7,58.4 L337.0,90.4 L352.3,65.6 L367.7,100.0 L383.0,71.2 L398.3,84.8 L413.6,62.4 L428.9,93.6 L444.3,56.8 L459.6,88.0 L474.9,68.0 L490.2,98.4 L505.5,73.6 L520.9,95.2 L536.2,59.2 L551.5,91.2 L566.8,64.0 L582.1,87.2 L597.4,60.0 L612.8,92.8 L628.1,70.4 L643.4,102.4 L658.7,65.6 L674.0,85.6 L689.4,68.8 L704.7,83.2 L720.0,80.0"/>
+            <path class="jitter p15" pathLength="1" d="M0.0,80.0 L15.3,77.3 L30.6,84.5 L46.0,73.7 L61.3,83.6 L76.6,71.6 L91.9,85.7 L107.2,77.0 L122.6,87.8 L137.9,74.9 L153.2,82.4 L168.5,71.0 L183.8,86.6 L199.1,76.1 L214.5,88.7 L229.8,74.3 L245.1,83.3 L260.4,72.8 L275.7,84.5 L291.1,77.9 L306.4,86.0 L321.7,71.9 L337.0,83.9 L352.3,74.6 L367.7,87.5 L383.0,76.7 L398.3,81.8 L413.6,73.4 L428.9,85.1 L444.3,71.3 L459.6,83.0 L474.9,75.5 L490.2,86.9 L505.5,77.6 L520.9,85.7 L536.2,72.2 L551.5,84.2 L566.8,74.0 L582.1,82.7 L597.4,72.5 L612.8,84.8 L628.1,76.4 L643.4,88.4 L658.7,74.6 L674.0,82.1 L689.4,75.8 L704.7,81.2 L720.0,80.0"/>
+            <path class="p0" d="M0,80 L720,80"/>
+          </svg>
+        </div>
+
+        <p class="bigline">
+          <span class="w"><span style="--w:0; animation-range: contain 58% contain 64%">Spling</span></span>
+          <span class="w"><span style="--w:1; animation-range: contain 61% contain 67%">deletes</span></span>
+          <span class="w"><span style="--w:2; animation-range: contain 64% contain 70%">the</span></span>
+          <span class="w"><span style="--w:3; animation-range: contain 67% contain 73%">speaker.</span></span>
+        </p>
+
+        <div class="mini-ticket">1× Large Latte · Oat Milk</div>
+
+        <p class="del-close">Your order is composed as data and arrives as data.</p>
+      </div>
+      <span class="sent" id="sent-1" style="top:25%"></span>
+      <span class="sent" id="sent-2" style="top:55%"></span>
+      <span class="sent" id="sent-3" style="top:80%"></span>
+    </div>
+
+    <div class="del-prose">
+      <p>
+        A human-run drive-through gets the order right about 85 times in 100. The AI
+        voice systems replacing them currently do a little worse. The reasons aren’t
+        mysterious: road noise, cheap speakers, accents, second languages, speech
+        differences. And if the spoken channel fails you entirely — because you’re
+        deaf, because you use an AAC device, because today your voice won’t cooperate —
+        the error rate isn’t 15%. It’s exclusion from a transaction everyone else
+        finishes in ninety seconds.
+      </p>
+      <p>
+        Remove the acoustic channel, and every failure mode attached
+        to it goes too. <strong>You order. They understand. Every time.</strong>
+      </p>
+    </div>
   </section>
 
-  <!-- 3 · Three short rows -->
-  <section class="col" aria-labelledby="rows-h">
+  <!-- 03 · What travels with you -->
+  <section class="g" id="travels" aria-labelledby="rows-h">
+    <div class="catch" aria-hidden="true">03 — What travels with you</div>
     <h2 id="rows-h">What travels with you</h2>
     <ul class="rows">
-      <li>
-        <h3>Your language</h3>
-        <p>Order in whatever language you think in. The restaurant’s register receives
-        exact items from its own menu, in its own language — never a guess, never free text.</p>
+      <li class="row">
+        <span class="num" aria-hidden="true">01</span>
+        <div class="rbody">
+          <div class="rt"><h3>Your language</h3><span class="tag" aria-hidden="true">Portable</span></div>
+          <p>Order in whatever language you think in. The restaurant’s register receives
+          exact items from its own menu, in its own language — never a guess, never free text.</p>
+        </div>
       </li>
-      <li>
-        <h3>Your profile</h3>
-        <p>How you communicate, what you’re allergic to, what “the usual” means — said
-        once, applied everywhere. An anaphylaxis allergen doesn’t rely on you remembering
-        to mention it; Spling blocks the item before the order exists.</p>
+      <li class="row">
+        <span class="num" aria-hidden="true">02</span>
+        <div class="rbody">
+          <div class="rt"><h3>Your profile</h3><span class="tag" aria-hidden="true">Said once</span></div>
+          <p>How you communicate, what you’re allergic to, what “the usual” means — said
+          once, applied everywhere. An anaphylaxis allergen doesn’t rely on you remembering
+          to mention it; Spling blocks the item before the order exists.</p>
+        </div>
       </li>
-      <li>
-        <h3>Your record</h3>
-        <p>Spling keeps both halves of every order: what you asked for, and what actually
-        arrived. Over time that becomes an accuracy record per restaurant — the receipt
-        finally has a memory.</p>
+      <li class="row">
+        <span class="num" aria-hidden="true">03</span>
+        <div class="rbody">
+          <div class="rt"><h3>Your record</h3><span class="tag" aria-hidden="true">Remembered</span></div>
+          <p>Spling keeps both halves of every order: what you asked for, and what actually
+          arrived. Over time that becomes an accuracy record per restaurant — the receipt
+          finally has a memory.</p>
+        </div>
       </li>
     </ul>
   </section>
 
-  <!-- 4 · Works with -->
-  <section class="col" aria-labelledby="works-h">
+  <!-- 04 · Works with -->
+  <section class="g" id="works" aria-labelledby="works-h">
+    <div class="catch" aria-hidden="true">04 — Works with</div>
     <h2 id="works-h" class="visually-hidden">Works with Claude and ChatGPT</h2>
-    <p class="works"><span>Works with Claude</span> <span class="and">and</span> <span>ChatGPT</span></p>
-    <p style="margin-top:16px;">
+    <p class="works-intro" aria-hidden="true">Works with</p>
+    <p class="works-name" aria-hidden="true"><span class="mask"><span class="mline">Claude</span></span></p>
+    <p class="works-and" aria-hidden="true">and</p>
+    <p class="works-name" aria-hidden="true"><span class="mask"><span class="mline">ChatGPT</span></span></p>
+    <p class="works-p">
       Spling is a connector: add it once in your assistant’s settings and it’s there in
       every conversation after that. Payment happens through a secure Square checkout
-      link on your own screen — <strong>Spling never sees your card.</strong>
+      link on your own screen.
     </p>
+    <p class="trust"><strong>Spling never sees your card.</strong></p>
   </section>
 
-  <!-- 5 · Caregiver staging -->
-  <section class="col" aria-labelledby="care-h">
-    <h2 id="care-h">Ordering for someone you love</h2>
-    <p>
-      Sometimes the person ordering isn’t the person eating. A parent, a support worker,
-      a friend can stage the whole order — right items, right modifiers, allergens already
-      enforced — and the person it belongs to finishes it with a single tap. Their order,
-      their confirmation, their independence. Just less typing.
-    </p>
-
-    <p class="visually-hidden">
-      A second, smaller exchange: the assistant says “Anna staged your usual — one medium
-      decaf latte with oat milk, $5.40. Confirm?” and the user answers with one tap: Confirm.
-    </p>
-    <div class="chat mini" aria-hidden="true">
-      <div class="msg assistant">
-        <span class="who">Your assistant</span>
-        <span class="line">Anna staged your usual — 1× Medium Decaf Latte, Oat Milk · $5.40. Confirm?</span>
+  <!-- 05 · Caregiver staging -->
+  <section class="g" id="care" aria-labelledby="care-h">
+    <div class="catch" aria-hidden="true">05 — For someone you love</div>
+    <div class="care-grid">
+      <div class="care-cols">
+        <div class="care-copy">
+          <h2 id="care-h">Ordering for someone you love</h2>
+          <p>
+            Sometimes the person ordering isn’t the person eating. A parent, a support worker,
+            a friend can stage the whole order — right items, right modifiers, allergens already
+            enforced — and the person it belongs to finishes it with a single tap. Their order,
+            their confirmation, their independence. Just less typing.
+          </p>
+          <p class="visually-hidden">
+            A second, smaller exchange: the assistant says “Anna staged your usual — one medium
+            decaf latte with oat milk, $5.40. Confirm?” and the user answers with one tap: Confirm.
+          </p>
+        </div>
+        <div class="care-visual" id="care-visual" aria-hidden="true">
+          <div class="msg assistant">
+            <span class="who">Your assistant</span>
+            <span class="line">Anna staged your usual — 1× Medium Decaf Latte, Oat Milk · $5.40. Confirm?</span>
+          </div>
+          <span class="confirm-chip"><span class="ring"></span>Confirm
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2.5,8.5 L6.5,12.5 L13.5,4" pathLength="1"/></svg>
+          </span>
+        </div>
       </div>
-      <span class="confirm-chip">Confirm ✓</span>
     </div>
   </section>
 
-  <!-- 6 · Quiet merchant line -->
-  <section class="col" aria-labelledby="merchant-h">
+  <!-- Merchant — the quietest object on the page -->
+  <section class="g" id="merchant" aria-labelledby="merchant-h">
     <h2 id="merchant-h" class="visually-hidden">For merchants</h2>
-    <p class="quiet">
-      Running a restaurant on Square? <strong style="color:var(--ink)">You’re already
-      compatible.</strong> Orders arrive in your point of sale as ordinary, exact tickets —
-      nothing to install. Questions: <a href="mailto:hello@spling.org">hello@spling.org</a>
-    </p>
+    <div class="box">
+      <span class="mtag" aria-hidden="true">For merchants</span>
+      <p class="quiet">
+        Running a restaurant on Square? <strong style="color:var(--ink)">You’re already
+        compatible.</strong> Orders arrive in your point of sale as ordinary, exact tickets —
+        nothing to install. Questions: <a href="mailto:hello@spling.org">hello@spling.org</a>
+      </p>
+    </div>
   </section>
 
 </main>
 
-<!-- 7 · Footer -->
-<footer class="site">
-  <div class="col">
-    <p>Set in <a href="https://www.brailleinstitute.org/freefont/">Atkinson Hyperlegible</a>,
-    a typeface designed by the Braille Institute for low-vision readers. That’s not a
-    style choice; it’s the point.</p>
-    <p><a href="accessibility.html">Accessibility statement</a></p>
-    <p>© 2026 R-evolv Inc. · <a href="mailto:hello@spling.org">hello@spling.org</a></p>
-  </div>
+<!-- The colophon -->
+<footer class="colophon g ink">
+  <p class="fnote">Set in <a href="https://www.brailleinstitute.org/freefont/">Atkinson Hyperlegible</a>,
+  a typeface designed by the Braille Institute for low-vision readers. That’s not a
+  style choice; it’s the point.</p>
+  <p><a href="accessibility.html">Accessibility statement</a></p>
+  <p>© 2026 R-evolv Inc. · <a href="mailto:hello@spling.org">hello@spling.org</a></p>
+  <p class="prm-note">This page works completely without motion. System reduce-motion is honored everywhere.</p>
+  <div class="ghost" aria-hidden="true">Spling</div>
 </footer>
 
 <script>
-/* Play the hero exchange once on load: typewriter for the incoming message,
-   then the reply, then the order card resolving. Reduced motion (or no JS)
-   gets the complete static frame. */
+/* ═══════════════════════════════════════════════════════════
+   Motion controller. Base document is the finished page; this
+   script only ADDS motion, and tears it down completely if the
+   OS reduce-motion setting flips mid-visit.
+   ═══════════════════════════════════════════════════════════ */
 (function () {
-  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (reduced) return;
+  "use strict";
 
-  var chat = document.getElementById("hero-chat");
-  var user = document.getElementById("m-user");
-  var assistant = document.getElementById("m-assistant");
-  var card = document.getElementById("m-card");
-  var line = user.querySelector(".line");
-  var full = line.textContent;
+  /* No IntersectionObserver → no motion tier at all; the base document is complete. */
+  if (!("IntersectionObserver" in window)) return;
 
-  chat.classList.add("play");
-  line.textContent = "";
-  user.classList.add("typing");
+  var docEl = document.documentElement;
+  var mm = window.matchMedia("(prefers-reduced-motion: no-preference)");
+  var supportsSDA = CSS.supports("animation-timeline: view()");
 
-  var i = 0;
-  function type() {
-    if (i <= full.length) {
-      line.textContent = full.slice(0, i);
-      i++;
-      setTimeout(type, 38);
-    } else {
-      user.classList.remove("typing");
-      setTimeout(function () {
-        assistant.classList.add("in");
-        setTimeout(function () { card.classList.add("in"); }, 650);
-      }, 450);
+  var timers = [];
+  var careTimer = null;
+  var observers = [];
+  var flights = [];
+  var heroDone = false;
+
+  function later(fn, ms) { timers.push(setTimeout(fn, ms)); }
+  function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+
+  /* ——— Hero: the order prints itself ——— */
+  var hero = document.getElementById("hero");
+  var mUser = document.getElementById("m-user");
+  var mAssistant = document.getElementById("m-assistant");
+  var mCard = document.getElementById("m-card");
+  var mPickup = document.getElementById("m-pickup");
+  var mClose = document.getElementById("m-close");
+  var plain = mUser ? mUser.querySelector(".plain") : null;
+  var HU = "Rendelnél nekem egy nagy lattét zabtejjel?";
+
+  function finishHero() {
+    /* listener removal is unconditional so a PRM flip can never leak them */
+    window.removeEventListener("wheel", finishHero);
+    window.removeEventListener("touchstart", finishHero);
+    window.removeEventListener("scroll", finishHero);
+    window.removeEventListener("keydown", heroKeySkip);
+    if (heroDone) return;
+    heroDone = true;
+    clearTimers();
+    flights.forEach(function (el) { el.remove(); });
+    flights = [];
+    var skip = document.getElementById("skip-anim");
+    if (skip && document.activeElement === skip) {
+      document.getElementById("main").focus({ preventScroll: true });
+    }
+    hero.classList.add("played");
+    docEl.classList.add("hero-played");
+  }
+  function heroKeySkip(e) {
+    if (e.key === "Tab" || e.key === "Shift") return;   /* let keyboard users reach the skip links */
+    finishHero();
+  }
+
+  function flyTokens() {
+    if (!("animate" in Element.prototype)) return;       /* no WAAPI: skip the flight, keep the chain */
+    /* two-phase: measure everything, then mutate — no interleaved reflows */
+    var cardRect = mCard.getBoundingClientRect();
+    var measured = [];
+    ["tok-1", "tok-2", "tok-3"].forEach(function (id, i) {
+      var tok = document.getElementById(id);
+      if (!tok) return;
+      var rects = tok.getClientRects();
+      if (rects.length !== 1) return;                    /* wrapped token: skip the flight */
+      measured.push({ text: tok.textContent, r: rects[0], i: i });
+    });
+    measured.forEach(function (m) {
+      var chip = document.createElement("span");
+      chip.className = "fly-chip";
+      chip.setAttribute("aria-hidden", "true");
+      chip.textContent = m.text;
+      chip.style.left = m.r.left + "px";
+      chip.style.top = m.r.top + "px";
+      document.body.appendChild(chip);
+      flights.push(chip);
+      var dx = (cardRect.left + 40 + m.i * 26) - m.r.left;
+      var dy = (cardRect.top + 24) - m.r.top;
+      var anim = chip.animate(
+        [
+          { transform: "translate(0,0)", opacity: 1 },
+          { transform: "translate(" + dx + "px," + dy + "px) scale(0.7)", opacity: 0 }
+        ],
+        { duration: 550, delay: m.i * 90, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "forwards" }
+      );
+      anim.onfinish = function () { chip.remove(); };
+    });
+  }
+
+  function startHero() {
+    if (heroDone || !hero) return;
+    if (window.scrollY > 80) { finishHero(); return; }   /* restored scroll: don't replay off-screen */
+    window.addEventListener("wheel", finishHero, { passive: true });
+    window.addEventListener("touchstart", finishHero, { passive: true });
+    window.addEventListener("scroll", finishHero, { passive: true });  /* scrollbar drags too */
+    window.addEventListener("keydown", heroKeySkip);
+
+    later(function () {
+      if (heroDone) return;
+      mUser.classList.add("in", "typing");
+      var i = 0;
+      (function type() {
+        if (heroDone) return;
+        if (i <= HU.length) {
+          plain.textContent = HU.slice(0, i);
+          i++;
+          timers.push(setTimeout(type, 34));
+        } else {
+          later(function () {
+            mUser.classList.remove("typing");
+            mUser.classList.add("annotated");           /* chips resolve in place */
+            later(function () {
+              mAssistant.classList.add("in");
+              later(function () {
+                flyTokens();
+                later(function () {
+                  mCard.classList.add("print");
+                  later(function () {
+                    mPickup.classList.add("stamp");
+                    later(function () {
+                      mClose.classList.add("in");
+                      later(finishHero, 700);
+                    }, 400);
+                  }, 700);                              /* stamp lands as the print finishes */
+                }, 300);
+              }, 500);
+            }, 550);
+          }, 350);
+        }
+      })();
+    }, 1150);
+  }
+
+  /* ——— IO fallback for scroll-driven reveals (when no scroll timelines) ——— */
+  function setupIOReveals() {
+    docEl.classList.add("io");
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
+      });
+    }, { threshold: 0.2 });
+    document.querySelectorAll(".row, #works .works-name, #works .works-p").forEach(function (el) {
+      io.observe(el);
+    });
+    observers.push(io);
+
+    /* deletion scene beats */
+    if (window.matchMedia("(min-width: 640px)").matches) {
+      var del = document.querySelector(".del");
+      var beats = { "sent-1": "beat-1", "sent-2": "beat-2", "sent-3": "beat-3" };
+      var sio = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) del.classList.add(beats[e.target.id]);
+        });
+      }, { threshold: 0 });
+      Object.keys(beats).forEach(function (id) {
+        var s = document.getElementById(id);
+        if (s) sio.observe(s);
+      });
+      observers.push(sio);
     }
   }
-  setTimeout(type, 500);
+
+  /* ——— Caregiver: one tap, played once, both tiers.
+         Own timer — the hero's interrupt must never cancel the tap. ——— */
+  function setupCare() {
+    var cv = document.getElementById("care-visual");
+    if (!cv) return;
+    var cio = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        cio.disconnect();
+        cv.classList.add("in");
+        careTimer = setTimeout(function () { cv.classList.add("tap"); }, 1250);
+      });
+    }, { threshold: 0.5 });
+    cio.observe(cv);
+    observers.push(cio);
+  }
+
+  function setupTickerPause() {
+    var btn = document.getElementById("tick-pause");
+    var ticker = document.getElementById("ticker");
+    if (!btn || !ticker || btn.dataset.wired) return;
+    btn.dataset.wired = "1";
+    btn.addEventListener("click", function () {
+      var paused = ticker.classList.toggle("paused");
+      btn.setAttribute("aria-pressed", String(paused));
+      btn.textContent = paused ? "Play" : "Pause";
+    });
+  }
+
+  function enableMotion(fromFlip) {
+    docEl.classList.add("motion");
+    if (!supportsSDA) setupIOReveals();
+    setupCare();
+    setupTickerPause();
+
+    var skip = document.getElementById("skip-anim");
+    if (skip) skip.addEventListener("click", finishHero);
+
+    /* PRM flipped to motion mid-visit: don't replay an off-context hero intro */
+    if (fromFlip) { finishHero(); return; }
+
+    var kicked = false;
+    function kick() { if (!kicked) { kicked = true; startHero(); } }
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(kick);
+      setTimeout(kick, 1500);                            /* don't wait forever on slow fonts */
+    } else {
+      kick();
+    }
+  }
+
+  function disableMotion() {
+    finishHero();                                        /* also removes the window listeners */
+    clearTimers();
+    if (careTimer) { clearTimeout(careTimer); careTimer = null; }
+    observers.forEach(function (o) { o.disconnect(); });
+    observers = [];
+    docEl.classList.remove("motion", "io");
+  }
+
+  if (mm.matches) enableMotion(false);
+  var onChange = function (e) { if (e.matches) { enableMotion(true); } else { disableMotion(); } };
+  if (mm.addEventListener) mm.addEventListener("change", onChange);
 })();
 </script>
 

@@ -14,11 +14,11 @@
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root{
-  --ink:  #1D1B16;
-  --paper:#FBF9F4;
-  --green:#1E6B4F;
-  --muted:#55514A;
-  --hair: rgba(29,27,22,.14);
+  --ink:  #0B0A12;
+  --paper:#F5F3EE;
+  --purple:#5E3DCC;
+  --muted:#4C4964;
+  --hair: rgba(11,10,18,.14);
 }
 html { scroll-behavior: smooth; }
 @media (prefers-reduced-motion: reduce){ html { scroll-behavior: auto; } }
@@ -29,10 +29,10 @@ body{
   background: var(--paper);
   color: var(--ink);
 }
-::selection{ background: var(--green); color: var(--paper); }
-a{ color: var(--green); text-decoration: underline; text-underline-offset: 3px; }
-a:hover{ text-decoration-thickness: 2px; }
-a:focus-visible{ outline: 3px solid var(--ink); outline-offset: 3px; border-radius: 4px; }
+::selection{ background: var(--purple); color: var(--paper); }
+a{ color: inherit; text-decoration: underline; text-decoration-color: var(--purple); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+a:hover{ text-decoration-thickness: 3px; }
+a:focus-visible{ outline: 3px solid var(--purple); outline-offset: 3px; border-radius: 4px; }
 .skip-link{
   position: absolute; left: -9999px; top: 16px; z-index: 100;
   background: var(--ink); color: var(--paper);
