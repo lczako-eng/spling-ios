@@ -1,12 +1,22 @@
 # Spling — Claude Code Project Instructions
 
 ## What this is
-Spling is an MCP (Model Context Protocol) server that lets AI assistants (Claude, ChatGPT)
-place food orders on behalf of a specific person — in their own language, with their
-communication profile applied — delivering validated structured line items to the merchant's
-POS via Square. The user never speaks at the point of sale.
+**Read `docs/STRATEGY.md` first. It outranks this file on questions of direction.**
+
+Spling removes the communication barrier between a person and a merchant, anywhere that
+communication is required — drive-throughs, counters, cafés, hotels, airports, retail,
+hospitals, stadiums, government service desks.
+
+**The communication layer is the product. Ordering is its first application**, and this
+MCP server is that application: it lets any assistant compose a validated structured
+transaction on a specific person's behalf — in their language, with their communication
+profile applied — delivering exact line items to the merchant's system via Square.
 
 **The thesis: the assistant is the user's mouth.**
+
+Three moats, and nothing else is defensible: **language composition**, **the communication
+profile**, **accuracy intelligence**. Ordering, payments, reservations and merchant
+integrations are commodity infrastructure — inherit them, never rebuild them.
 
 ## Architecture (do not deviate)
 - **Runtime:** Supabase Edge Functions (Deno / TypeScript). No Node servers.
