@@ -7,10 +7,10 @@
 
 <link rel="canonical" href="https://spling.org/" />
 <meta name="robots" content="index, follow, max-image-preview:large, max-snippet=-1" />
-<meta name="description" content="Spling lets you order food through your AI assistant — in your own language, without speaking at the point of sale. Works with Claude and ChatGPT. Payment by secure Square checkout; Spling never sees your card." />
+<meta name="description" content="Spling lets you order food through your AI assistant — in your own language, without speaking at the point of sale. One connector for Claude, ChatGPT, and any assistant that speaks MCP: your language, communication profile and history travel with you when you switch. Payment by secure Square checkout; Spling never sees your card." />
 
 <meta property="og:title" content="Spling — Your AI assistant is your mouth" />
-<meta property="og:description" content="Order in your language, without speaking, anywhere. A connector for Claude and ChatGPT." />
+<meta property="og:description" content="Order in your language, without speaking, anywhere. One connector for Claude, ChatGPT, and any assistant that speaks MCP — your profile travels with you." />
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://spling.org/" />
 <meta name="twitter:card" content="summary" />
@@ -654,8 +654,26 @@ html.motion .ticker.paused .track{ animation-play-state: paused; }
   font-size: 1.05rem;
   padding-left: 0.15em;
 }
+#works .works-more{
+  grid-column: wide;
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: clamp(0.95rem, 0.85rem + 0.5vw, 1.15rem);
+  letter-spacing: 0.01em;
+  color: var(--purple);
+  font-weight: 600;
+}
 #works .works-p{ margin-top: 28px; }
-#works .trust{ margin-top: 0.6em; }     /* the trust sentence: never animated */
+.sub-h{
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(1.25rem, 1.1rem + 1vw, 1.6rem);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  margin-top: 2.2em;
+  margin-bottom: 0.5em;
+  text-wrap: balance;
+}
 
 /* ——— Caregiver — the one asymmetric spread ——— */
 #care .care-grid{
@@ -1038,7 +1056,7 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
       <img src="assets/Short_logo-removebg.png" alt="" width="30" height="30">
       <span class="wm-mask"><span class="wl">Spling</span></span>
     </a>
-    <span class="dateline" aria-hidden="true">A connector for Claude &amp; ChatGPT</span>
+    <span class="dateline" aria-hidden="true">One connector · Any assistant</span>
   </div>
 </header>
 
@@ -1234,8 +1252,9 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
         <div class="rbody">
           <div class="rt"><h3>Your profile</h3><span class="tag" aria-hidden="true">Said once</span></div>
           <p>How you communicate, what you’re allergic to, what “the usual” means — said
-          once, applied everywhere. An anaphylaxis allergen doesn’t rely on you remembering
-          to mention it; Spling blocks the item before the order exists.</p>
+          once, applied everywhere, at every merchant and on every assistant. An anaphylaxis
+          allergen doesn’t rely on you remembering to mention it; Spling blocks the item
+          before the order exists.</p>
         </div>
       </li>
       <li class="row">
@@ -1252,18 +1271,42 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
 
   <!-- 04 · Works with -->
   <section class="g" id="works" aria-labelledby="works-h">
-    <div class="catch" aria-hidden="true">04 — Works with</div>
-    <h2 id="works-h" class="visually-hidden">Works with Claude and ChatGPT</h2>
+    <div class="catch" aria-hidden="true">04 — One connector, any assistant</div>
+    <h2 id="works-h" class="visually-hidden">One connector, any assistant</h2>
     <p class="works-intro" aria-hidden="true">Works with</p>
     <p class="works-name" aria-hidden="true"><span class="mask"><span class="mline">Claude</span></span></p>
     <p class="works-and" aria-hidden="true">and</p>
     <p class="works-name" aria-hidden="true"><span class="mask"><span class="mline">ChatGPT</span></span></p>
+    <p class="works-more" aria-hidden="true">— and any assistant that speaks MCP.</p>
     <p class="works-p">
-      Spling is a connector: add it once in your assistant’s settings and it’s there in
-      every conversation after that. Payment happens through a secure Square checkout
-      link on your own screen.
+      Spling isn’t an app you open. It’s one connector, built on MCP — the open standard
+      assistants use to reach outside tools. Add it once and it’s there in every
+      conversation after that, on whichever assistant you happen to be using.
     </p>
-    <p class="trust"><strong>Spling never sees your card.</strong></p>
+
+    <h3 class="sub-h">Your profile isn’t in the assistant. It’s yours.</h3>
+    <p>
+      This is the part that matters. Your language, how you communicate, your allergens,
+      what “the usual” means, every order you’ve ever placed — none of it lives inside
+      Claude or ChatGPT. It lives with you, and it arrives the moment you connect.
+    </p>
+    <p>
+      So when you switch assistants — to whatever is best next year, or whatever your
+      school, workplace, or country puts in front of you — you don’t start over. You
+      don’t re-explain your speech difference to a new machine. You don’t retype your
+      allergens and hope. <strong>You connect, and it already knows.</strong>
+    </p>
+    <p>
+      And it’s exportable, in the open PAM format, any time you want it. Take it and
+      leave. Nothing about Spling holds you here — that’s the whole point of a profile
+      you own.
+    </p>
+
+    <h3 class="sub-h">Payment</h3>
+    <p>
+      Checkout happens through a secure Square link on your own screen.
+      <strong>Spling never sees your card.</strong>
+    </p>
   </section>
 
   <!-- 05 · Caregiver staging -->
