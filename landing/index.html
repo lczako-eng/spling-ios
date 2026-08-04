@@ -379,7 +379,6 @@ html:not(.motion) .field-legend{ display: none; }
   padding: 22px 24px;
   font-family: var(--mono);
   box-shadow: 0 26px 70px -22px rgba(94,61,204,.75), 0 4px 14px -6px rgba(94,61,204,.4);
-  transform: rotate(-1.5deg);
 }
 @media (min-width: 760px){
   .order-card{ width: 420px; }
@@ -563,8 +562,57 @@ html.motion .ticker.paused .track{ animation-play-state: paused; }
 .del-prose p{ color: var(--paper); }
 .sent{ position: absolute; width: 1px; height: 1px; }   /* IO fallback sentinels */
 
-/* ——— What travels with you — the numbered index ——— */
+/* ——— Who this is for — accessibility, given the weight it deserves ——— */
+.who-h{
+  grid-column: wide;
+  font-size: clamp(1.9rem, 1.3rem + 3.4vw, 3.4rem);
+  line-height: 1.06;
+  letter-spacing: -0.025em;
+  max-width: 18ch;
+  margin-bottom: 14px;
+}
+.who-lead{
+  grid-column: wide;
+  color: var(--bubble);
+  font-size: clamp(1.1rem, 1rem + 0.6vw, 1.3rem);
+  max-width: 40ch;
+}
+.who-list{
+  grid-column: wide;
+  list-style: none;
+  margin-top: clamp(2rem, 1.6rem + 2vw, 3rem);
+}
+.who-list li{
+  padding: clamp(1rem, 0.8rem + 1vw, 1.5rem) 0;
+  border-top: 1px solid var(--hair-p);
+  max-width: 62ch;
+}
+.who-list li:last-child{ border-bottom: 1px solid var(--hair-p); }
+.who-list strong{ color: #fff; }
+.who-close{
+  grid-column: wide;
+  margin-top: clamp(1.6rem, 1.2rem + 1.6vw, 2.4rem);
+  max-width: 58ch;
+}
+.who-links{ grid-column: wide; margin-top: 1.2em; color: var(--bubble); }
+
+/* ——— What only Spling does — the numbered index ——— */
 #travels h2{ grid-column: wide; }
+.rows-lead{
+  grid-column: wide;
+  color: var(--muted);
+  max-width: 52ch;
+  margin-bottom: clamp(1.4rem, 1rem + 1.6vw, 2.2rem);
+}
+.row .tag{
+  display: inline-block;
+  margin-bottom: 12px;
+  background: var(--purple);
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 0.62rem;
+}
 .rows{ list-style: none; grid-column: wide; }
 .row{
   position: relative;
@@ -595,12 +643,7 @@ html.motion .ticker.paused .track{ animation-play-state: paused; }
     -webkit-text-stroke: 1.5px rgba(94,61,204,.4);
   }
 }
-.row .rt{
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-}
+.row .rt{ display: block; }
 .row h3{
   font-family: var(--display);
   font-weight: 700;
@@ -790,7 +833,7 @@ footer.colophon p + p{ margin-top: 0.7em; }
 @keyframes rise    { from { transform: translateY(115%); } }
 @keyframes fade-up { from { opacity: 0; transform: translateY(12px); } }
 @keyframes draw    { from { stroke-dashoffset: 1; } }
-@keyframes printcard{ from { clip-path: inset(0 0 100% 0); transform: translateY(-8px) rotate(-1.5deg); } }
+@keyframes printcard{ from { clip-path: inset(0 0 100% 0); transform: translateY(-8px); } }
 @keyframes stamp   { 0% { transform: scale(1.35); opacity: 0; } 30% { opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
 @keyframes tapdown { 0%{ transform: scale(1);} 40%{ transform: scale(0.96);} 100%{ transform: scale(1);} }
 @keyframes ringout { 0%{ opacity: 1; transform: scale(1);} 100%{ opacity: 0; transform: scale(1.22);} }
@@ -1234,36 +1277,82 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
     </div>
   </section>
 
-  <!-- 03 · What travels with you -->
+  <!-- 03 · Who this is for — accessibility, stated first and plainly -->
+  <section class="g ink" id="who" aria-labelledby="who-h">
+    <div class="catch" aria-hidden="true">03 — Who this is for</div>
+    <h2 id="who-h" class="who-h">Built for the people the speaker fails.</h2>
+    <p class="who-lead">
+      Not as a setting you go and switch on. As the reason the product exists.
+    </p>
+
+    <ul class="who-list">
+      <li><strong>If you have a speech difference</strong> — a stammer, dysarthria, apraxia,
+      a voice that cooperates on some days and not others — you are not asking anyone to
+      be patient. You are not repeating yourself into a box while a queue builds behind you.</li>
+      <li><strong>If you’re deaf or hard of hearing</strong> — there is no crackling reply to
+      miss, and no one asking you to confirm something you couldn’t hear.</li>
+      <li><strong>If you use AAC</strong> — your device already composes language. Spling takes
+      it from there. Nothing has to be spoken aloud to a stranger through a speaker.</li>
+      <li><strong>If you’re non-verbal</strong> — this transaction never required a voice.
+      It only ever required your intent, carried accurately.</li>
+      <li><strong>If the local language isn’t yours</strong> — you order in the one you think in,
+      and the kitchen reads its own menu back.</li>
+    </ul>
+
+    <p class="who-close">
+      The spoken drive-through fails a far larger group than “accessibility” usually
+      implies — and for some of them it isn’t a 15% error rate, it’s being shut out of a
+      ninety-second transaction everyone else completes without thinking.
+      <strong>Spling removes the requirement, not the difficulty.</strong>
+    </p>
+
+    <p class="who-links">
+      <a href="accessibility.html">Read the accessibility statement</a> — what we build to,
+      and how to tell us when we fall short.
+    </p>
+  </section>
+
+  <!-- 04 · The three things only Spling does -->
   <section class="g" id="travels" aria-labelledby="rows-h">
-    <div class="catch" aria-hidden="true">03 — What travels with you</div>
-    <h2 id="rows-h">What travels with you</h2>
+    <div class="catch" aria-hidden="true">04 — What only Spling does</div>
+    <h2 id="rows-h">Three things nobody else is building.</h2>
+    <p class="rows-lead">
+      Ordering, payments and reservations are solved — Spling rides those rails rather
+      than rebuilding them. These three are the product.
+    </p>
     <ul class="rows">
       <li class="row">
         <span class="num" aria-hidden="true">01</span>
         <div class="rbody">
-          <div class="rt"><h3>Your language</h3><span class="tag" aria-hidden="true">Portable</span></div>
-          <p>Order in whatever language you think in. The restaurant’s register receives
-          exact items from its own menu, in its own language — never a guess, never free text.</p>
+          <div class="rt"><span class="tag" aria-hidden="true">Moat</span><h3>Language conversion, at the moment the order is composed</h3></div>
+          <p>Not translated text — a validated order. You compose in your language; the
+          register receives exact line items in its own. The system may only emit real
+          catalogue items, real modifiers, real quantities, checked against that merchant’s
+          live menu. It cannot invent a dish, mishear a size, or pass along free text.
+          <strong>That constraint is what makes accuracy possible where voice fails.</strong></p>
         </div>
       </li>
       <li class="row">
         <span class="num" aria-hidden="true">02</span>
         <div class="rbody">
-          <div class="rt"><h3>Your profile</h3><span class="tag" aria-hidden="true">Said once</span></div>
-          <p>How you communicate, what you’re allergic to, what “the usual” means — said
-          once, applied everywhere, at every merchant and on every assistant. An anaphylaxis
-          allergen doesn’t rely on you remembering to mention it; Spling blocks the item
-          before the order exists.</p>
+          <div class="rt"><span class="tag" aria-hidden="true">Moat</span><h3>A communication profile that belongs to you</h3></div>
+          <p>Speech difference, deafness, non-verbal status, allergens, how you want to be
+          met — recorded once, applied at every merchant and on every assistant. Plenty of
+          tools remember your preferences. None of them treat how you communicate as a
+          portable part of ordering. An anaphylaxis allergen never depends on you
+          remembering to mention it: the item is blocked before the order exists.</p>
         </div>
       </li>
       <li class="row">
         <span class="num" aria-hidden="true">03</span>
         <div class="rbody">
-          <div class="rt"><h3>Your record</h3><span class="tag" aria-hidden="true">Remembered</span></div>
-          <p>Spling keeps both halves of every order: what you asked for, and what actually
-          arrived. Over time that becomes an accuracy record per restaurant — the receipt
-          finally has a memory.</p>
+          <div class="rt"><span class="tag" aria-hidden="true">Moat</span><h3>An accuracy ledger that finally connects both halves</h3></div>
+          <p>What you ordered, and what actually arrived — tied to the merchant, the
+          location and the item, accumulating over time into a real accuracy record per
+          restaurant. Today the payment processor sees the ticket and the restaurant sees
+          the complaint, and nobody joins them. <strong>It’s the one thing here that
+          compounds:</strong> every order makes it worth more, and it can’t be
+          back-dated by anyone starting later.</p>
         </div>
       </li>
     </ul>
@@ -1271,7 +1360,7 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
 
   <!-- 04 · Works with -->
   <section class="g" id="works" aria-labelledby="works-h">
-    <div class="catch" aria-hidden="true">04 — One connector, any assistant</div>
+    <div class="catch" aria-hidden="true">05 — One connector, any assistant</div>
     <h2 id="works-h" class="visually-hidden">One connector, any assistant</h2>
     <p class="works-intro" aria-hidden="true">Works with</p>
     <p class="works-name" aria-hidden="true"><span class="mask"><span class="mline">Claude</span></span></p>
@@ -1311,7 +1400,7 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
 
   <!-- 05 · Caregiver staging -->
   <section class="g" id="care" aria-labelledby="care-h">
-    <div class="catch" aria-hidden="true">05 — For someone you love</div>
+    <div class="catch" aria-hidden="true">06 — For someone you love</div>
     <div class="care-grid">
       <div class="care-cols">
         <div class="care-copy">
