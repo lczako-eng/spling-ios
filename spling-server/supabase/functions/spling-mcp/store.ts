@@ -93,6 +93,22 @@ export async function removeDietary(profileId: string, value: string) {
 // merchants
 // ---------------------------------------------------------------------------
 
+export interface MerchantRow {
+  id: string;
+  display_name: string;
+  provider: string;
+  catalogue_kind: string;
+  currency: string;
+}
+
+/** Which rail a location is on. Null when we have never seen it. */
+export async function findMerchant(locationId: string): Promise<MerchantRow | null> {
+  const rows = await pg(
+    `merchants?square_location_id=eq.${encodeURIComponent(locationId)}&select=id,display_name,provider,catalogue_kind,currency&limit=1`,
+  );
+  return rows?.[0] ?? null;
+}
+
 export async function ensureMerchant(squareLocationId: string, displayName: string): Promise<string> {
   const found = await pg(`merchants?square_location_id=eq.${squareLocationId}&select=id&limit=1`);
   if (found?.length) return found[0].id;

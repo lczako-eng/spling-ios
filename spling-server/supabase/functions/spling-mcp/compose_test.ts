@@ -36,7 +36,7 @@ function eq(actual: unknown, expected: unknown, msg = "") {
 // ---------------------------------------------------------------------------
 const MILK = {
   id: "ML_MILK", name: "Milk",
-  modifiers: [
+  options: [
     { id: "MOD_OAT", name: "Oat Milk", price_cents: 75 },
     { id: "MOD_SOY", name: "Soy Milk", price_cents: 60 },
     { id: "MOD_WHOLE", name: "Whole Milk", price_cents: 0 },
@@ -44,14 +44,14 @@ const MILK = {
 };
 const SHOTS = {
   id: "ML_SHOTS", name: "Espresso",
-  modifiers: [
+  options: [
     { id: "MOD_DECAF", name: "Decaf", price_cents: 0 },
     { id: "MOD_EXTRA", name: "Extra Shot", price_cents: 90 },
   ],
 };
 const BREAD = {
   id: "ML_BREAD", name: "Bread",
-  modifiers: [
+  options: [
     { id: "MOD_SOURDOUGH", name: "Sourdough", price_cents: 0 },
     { id: "MOD_RYE", name: "Rye", price_cents: 0 },
   ],
@@ -60,32 +60,35 @@ const BREAD = {
 const ITEMS: CatalogItem[] = [
   {
     id: "ITEM_LATTE", name: "Latte", category: "Coffee",
-    variations: [
+    variants: [
       { id: "VAR_LATTE_S", name: "Small", price_cents: 450, currency: "CAD" },
       { id: "VAR_LATTE_L", name: "Large", price_cents: 550, currency: "CAD" },
     ],
-    modifier_lists: [MILK, SHOTS],
+    option_groups: [MILK, SHOTS],
   },
   {
     id: "ITEM_FLAT", name: "Flat White", category: "Coffee",
-    variations: [{ id: "VAR_FLAT", name: "Regular", price_cents: 500, currency: "CAD" }],
-    modifier_lists: [MILK],
+    variants: [{ id: "VAR_FLAT", name: "Regular", price_cents: 500, currency: "CAD" }],
+    option_groups: [MILK],
   },
   {
     id: "ITEM_PBJ", name: "Peanut Butter Sandwich", category: "Food",
     description: "House peanut butter and raspberry jam",
-    allergens: ["peanut"],
-    variations: [{ id: "VAR_PBJ", name: "Regular", price_cents: 850, currency: "CAD" }],
-    modifier_lists: [BREAD],
+    tags: ["peanut"],
+    variants: [{ id: "VAR_PBJ", name: "Regular", price_cents: 850, currency: "CAD" }],
+    option_groups: [BREAD],
   },
   {
     id: "ITEM_TURKEY", name: "Turkey Sandwich", category: "Food",
-    variations: [{ id: "VAR_TURKEY", name: "Regular", price_cents: 990, currency: "CAD" }],
-    modifier_lists: [BREAD],
+    variants: [{ id: "VAR_TURKEY", name: "Regular", price_cents: 990, currency: "CAD" }],
+    option_groups: [BREAD],
   },
 ];
 
-const MENU: Menu = { location_id: "L1", fetched_at: new Date(0).toISOString(), items: ITEMS };
+const MENU: Menu = {
+  provider: "test", location_id: "L1", kind: "menu", noun: "order",
+  fetched_at: new Date(0).toISOString(), offerings: ITEMS,
+};
 
 // ---------------------------------------------------------------------------
 // the happy path
@@ -197,7 +200,7 @@ test("anaphylaxis block cannot be overridden, even explicitly", () => {
 test("allergen is caught via the item description, not just a tag", () => {
   const withoutTag: Menu = {
     ...MENU,
-    items: MENU.items.map((i) => (i.id === "ITEM_PBJ" ? { ...i, allergens: [] } : i)),
+    offerings: MENU.offerings.map((i) => (i.id === "ITEM_PBJ" ? { ...i, tags: [] } : i)),
   };
   const r = compose({ menu: withoutTag, requested: [{ name_or_id: "Peanut Butter Sandwich" }], dietary: ANAPHYLAXIS });
   assert(!r.ok, "description mentions peanut butter — must still block");

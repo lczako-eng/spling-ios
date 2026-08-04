@@ -21,7 +21,14 @@
 //
 // This module is pure: no network, no database, no Deno APIs. That is what
 // makes it testable, and it is tested in compose_test.ts.
+//
+// It validates against a Catalogue (catalogue.ts) and never learns which rail
+// produced it. A hotel booking and a pharmacy request run through exactly this
+// code path — see compose_domains_test.ts. The food-shaped names below are kept
+// as aliases so nothing that already imports them breaks.
 // ============================================================================
+
+import type { Catalogue, Offering, OptionGroup, Option, Variant } from "./catalogue.ts";
 
 export const MAX_QTY = 50;
 
@@ -33,41 +40,13 @@ export interface DietaryConstraint {
   severity: Severity;
 }
 
-export interface CatalogModifier {
-  id: string;
-  name: string;
-  price_cents: number;
-}
-
-export interface CatalogModifierList {
-  id: string;
-  name: string;
-  modifiers: CatalogModifier[];
-}
-
-export interface CatalogVariation {
-  id: string;
-  name: string;
-  price_cents: number;
-  currency: string;
-}
-
-export interface CatalogItem {
-  id: string;
-  name: string;
-  description?: string | null;
-  category?: string;
-  variations: CatalogVariation[];
-  modifier_lists: CatalogModifierList[];
-  /** Allergen tags, if the merchant publishes them. Absence is not safety. */
-  allergens?: string[];
-}
-
-export interface Menu {
-  location_id: string;
-  fetched_at: string;
-  items: CatalogItem[];
-}
+/* The domain model lives in catalogue.ts. These aliases keep the food-shaped
+   vocabulary working for the Square path and for existing callers. */
+export type CatalogModifier = Option;
+export type CatalogModifierList = OptionGroup;
+export type CatalogVariation = Variant;
+export type CatalogItem = Offering;
+export type Menu = Catalogue;
 
 /** What the assistant proposes. Free text — none of it is trusted. */
 export interface RequestedItem {
@@ -174,9 +153,9 @@ function resolveUnique<T>(m: Match<T>): { hit?: T; ambiguous: T[] } {
 // Dietary enforcement
 // ---------------------------------------------------------------------------
 
-function textOf(item: CatalogItem, variation: CatalogVariation, mods: ResolvedModifier[]): string {
+function textOf(item: Offering, variation: Variant, mods: ResolvedModifier[]): string {
   return normalize(
-    [item.name, item.description ?? "", (item.allergens ?? []).join(" "), variation.name, mods.map((m) => m.name).join(" ")]
+    [item.name, item.description ?? "", (item.tags ?? []).join(" "), variation.name, mods.map((m) => m.name).join(" ")]
       .join(" ")
   );
 }
@@ -197,7 +176,8 @@ function constraintHits(c: DietaryConstraint, haystack: string): boolean {
 // ---------------------------------------------------------------------------
 
 export interface ComposeOptions {
-  menu: Menu;
+  /** Any provider's catalogue. `menu` is kept as the parameter name for compatibility. */
+  menu: Catalogue;
   requested: RequestedItem[];
   dietary?: DietaryConstraint[];
   /** Values the user has explicitly overridden this order. Never applies to anaphylaxis. */
@@ -234,7 +214,7 @@ export function compose(opts: ComposeOptions): CompositionResult {
     }
 
     // ---- item ----
-    const itemMatch = resolveUnique(matchByName(label, menu.items, (i) => i.name, (i) => i.id));
+    const itemMatch = resolveUnique(matchByName(label, menu.offerings, (i) => i.name, (i) => i.id));
     if (!itemMatch.hit) {
       const r: Rejection = itemMatch.ambiguous.length
         ? {
@@ -255,20 +235,20 @@ export function compose(opts: ComposeOptions): CompositionResult {
     const item = itemMatch.hit;
 
     // ---- variation (size) ----
-    if (!item.variations.length) {
+    if (!item.variants.length) {
       const r: Rejection = {
         requested: label,
         code: "variation_not_found",
-        reason: `"${item.name}" has no purchasable variation in the catalog.`,
+        reason: `"${item.name}" has no bookable or purchasable option in this catalogue.`,
       };
       rejections.push(r);
       events.push({ event: "item_rejected", detail: { ...r } });
       continue;
     }
 
-    let variation: CatalogVariation;
+    let variation: Variant;
     if (req.variation) {
-      const vm = resolveUnique(matchByName(req.variation, item.variations, (v) => v.name, (v) => v.id));
+      const vm = resolveUnique(matchByName(req.variation, item.variants, (v) => v.name, (v) => v.id));
       if (!vm.hit) {
         const r: Rejection = {
           requested: `${label} (${req.variation})`,
@@ -276,21 +256,21 @@ export function compose(opts: ComposeOptions): CompositionResult {
           reason: vm.ambiguous.length
             ? `"${req.variation}" matches more than one size of ${item.name}.`
             : `${item.name} has no "${req.variation}" option.`,
-          candidates: item.variations.map((v) => v.name),
+          candidates: item.variants.map((v) => v.name),
         };
         rejections.push(r);
         events.push({ event: "item_rejected", detail: { ...r } });
         continue;
       }
       variation = vm.hit;
-    } else if (item.variations.length === 1) {
-      variation = item.variations[0];
+    } else if (item.variants.length === 1) {
+      variation = item.variants[0];
     } else {
       const r: Rejection = {
         requested: label,
         code: "variation_ambiguous",
-        reason: `${item.name} comes in more than one size. Ask which.`,
-        candidates: item.variations.map((v) => v.name),
+        reason: `${item.name} comes in more than one form. Ask which.`,
+        candidates: item.variants.map((v) => v.name),
       };
       rejections.push(r);
       events.push({ event: "item_rejected", detail: { ...r } });
@@ -298,7 +278,7 @@ export function compose(opts: ComposeOptions): CompositionResult {
     }
 
     // ---- modifiers ----
-    const validMods: CatalogModifier[] = item.modifier_lists.flatMap((l) => l.modifiers);
+    const validMods: Option[] = item.option_groups.flatMap((l) => l.options);
     const resolvedMods: ResolvedModifier[] = [];
     let modFailed: Rejection | null = null;
 

@@ -6,7 +6,9 @@
 // card data touches this server, ever.
 // ============================================================================
 
-import type { CatalogItem, CatalogModifierList, Menu, ResolvedLineItem } from "./compose.ts";
+import type { ResolvedLineItem } from "./compose.ts";
+import type { Catalogue, Offering, OptionGroup, CatalogueProvider, SubmittedTransaction } from "./catalogue.ts";
+import { nounFor, registerProvider } from "./catalogue.ts";
 
 /** Env read without binding this module to a global at load time, so the pure
  *  helpers below stay importable by the test runner. */
@@ -57,24 +59,24 @@ export async function square(path: string, init: RequestInit = {}): Promise<any>
 // catalog → Menu
 // ---------------------------------------------------------------------------
 
-type CachedMenu = { at: number; menu: Menu };
+type CachedMenu = { at: number; menu: Catalogue };
 const menuCache = new Map<string, CachedMenu>();
 
 export function clearMenuCache() { menuCache.clear(); }
 
 /** Pure so it can be tested without the network. */
-export function buildMenu(locationId: string, objects: any[]): Menu {
+export function buildMenu(locationId: string, objects: any[]): Catalogue {
   const categories = new Map<string, string>();
   for (const o of objects.filter((o) => o.type === "CATEGORY")) {
     categories.set(o.id, o.category_data?.name ?? "Other");
   }
 
-  const modifierLists = new Map<string, CatalogModifierList>();
+  const modifierLists = new Map<string, OptionGroup>();
   for (const o of objects.filter((o) => o.type === "MODIFIER_LIST")) {
     modifierLists.set(o.id, {
       id: o.id,
       name: o.modifier_list_data?.name ?? "Options",
-      modifiers: (o.modifier_list_data?.modifiers ?? []).map((m: any) => ({
+      options: (o.modifier_list_data?.modifiers ?? []).map((m: any) => ({
         id: m.id,
         name: m.modifier_data?.name ?? "",
         price_cents: Number(m.modifier_data?.price_money?.amount ?? 0),
@@ -82,7 +84,7 @@ export function buildMenu(locationId: string, objects: any[]): Menu {
     });
   }
 
-  const items: CatalogItem[] = objects
+  const items: Offering[] = objects
     .filter((o) => o.type === "ITEM")
     .map((o: any) => {
       const d = o.item_data ?? {};
@@ -91,27 +93,34 @@ export function buildMenu(locationId: string, objects: any[]): Menu {
         name: d.name ?? "",
         description: d.description ?? null,
         category: categories.get(d.category_id) ?? "Menu",
-        allergens: (d.food_and_beverage_details?.dietary_preferences ?? [])
+        tags: (d.food_and_beverage_details?.dietary_preferences ?? [])
           .map((p: any) => String(p?.standard_name ?? p?.custom_name ?? "").toLowerCase())
           .filter(Boolean),
-        variations: (d.variations ?? []).map((v: any) => ({
+        variants: (d.variations ?? []).map((v: any) => ({
           id: v.id,
           name: v.item_variation_data?.name ?? "Regular",
           price_cents: Number(v.item_variation_data?.price_money?.amount ?? 0),
           currency: v.item_variation_data?.price_money?.currency ?? "CAD",
         })),
-        modifier_lists: (d.modifier_list_info ?? [])
+        option_groups: (d.modifier_list_info ?? [])
           .map((mi: any) => modifierLists.get(mi.modifier_list_id))
-          .filter(Boolean) as CatalogModifierList[],
+          .filter(Boolean) as OptionGroup[],
       };
     })
     // An item with no price cannot be ordered, so it does not belong on a menu.
-    .filter((i) => i.variations.length > 0);
+    .filter((i) => i.variants.length > 0);
 
-  return { location_id: locationId, fetched_at: new Date().toISOString(), items };
+  return {
+    provider: "square",
+    location_id: locationId,
+    kind: "menu",
+    noun: nounFor("menu"),
+    fetched_at: new Date().toISOString(),
+    offerings: items,
+  };
 }
 
-export async function fetchMenu(locationId: string, force = false): Promise<Menu> {
+export async function fetchMenu(locationId: string, force = false): Promise<Catalogue> {
   const cached = menuCache.get(locationId);
   if (!force && cached && Date.now() - cached.at < MENU_TTL_MS) return cached.menu;
 
@@ -200,3 +209,58 @@ export function mapSquareState(state: string | undefined, tenders: unknown[] | u
   if (tenders && tenders.length > 0) return "paid";
   return "payment_pending";
 }
+
+
+// ---------------------------------------------------------------------------
+// Square as a catalogue provider.
+// Everything above is Square-specific; everything the composer sees is not.
+// ---------------------------------------------------------------------------
+
+export const squareProvider: CatalogueProvider = {
+  name: "square",
+
+  getCatalogue(locationId: string) {
+    return fetchMenu(locationId);
+  },
+
+  async submit(input): Promise<SubmittedTransaction> {
+    const order = await createOrder(
+      input.locationId,
+      // createOrder only reads the fields below; the cast keeps the provider
+      // interface free of Square's line-item shape.
+      input.lineItems as unknown as ResolvedLineItem[],
+      input.idempotencyKey,
+      input.reference,
+    );
+
+    // Square is the source of truth for money. Disagreement stops the
+    // transaction rather than charging a number we did not calculate.
+    if (order.total_cents !== input.totalCents) {
+      return {
+        reference: input.reference,
+        external_id: order.id,
+        total_cents: order.total_cents,
+        currency: order.currency,
+        checkout_url: null,
+        status: "failed",
+      };
+    }
+
+    const link = await createPaymentLink(order.id, input.idempotencyKey + "-link", `Spling pickup ${input.reference}`);
+    return {
+      reference: input.reference,
+      external_id: order.id,
+      total_cents: order.total_cents,
+      currency: order.currency,
+      checkout_url: link.url,
+      status: "payment_pending",
+    };
+  },
+
+  async status(externalId: string) {
+    const order = await getOrder(externalId);
+    return mapSquareState(order?.state, order?.tenders);
+  },
+};
+
+registerProvider(squareProvider);
