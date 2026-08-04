@@ -180,7 +180,7 @@ test("index.ts declares exactly the nine specified tools", async () => {
 
 test("no secret is hard-coded anywhere in the function", async () => {
   const fs = await import("node:fs/promises");
-  for (const f of ["index.ts", "square.ts", "store.ts", "compose.ts", "pam.ts"]) {
+  for (const f of ["index.ts", "square.ts", "store.ts", "compose.ts", "pam.ts", "ledger.ts"]) {
     const src = await fs.readFile(new URL(`./${f}`, import.meta.url), "utf8");
     assert(!/EAAA[A-Za-z0-9_-]{10,}/.test(src), `${f} contains what looks like a Square token`);
     assert(!/eyJ[A-Za-z0-9_-]{20,}\./.test(src), `${f} contains what looks like a JWT`);
