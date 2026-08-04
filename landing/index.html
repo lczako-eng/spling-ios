@@ -7,10 +7,10 @@
 
 <link rel="canonical" href="https://spling.org/" />
 <meta name="robots" content="index, follow, max-image-preview:large, max-snippet=-1" />
-<meta name="description" content="Spling lets you order food through your AI assistant — in your own language, without speaking at the point of sale. One connector for Claude, ChatGPT, and any assistant that speaks MCP: your language, communication profile and history travel with you when you switch. Payment by secure Square checkout; Spling never sees your card." />
+<meta name="description" content="Order without speaking — in any language, with any voice, or with no voice at all. Spling places food orders through your AI assistant as structured data, so the spoken channel is never required at the point of sale. One connector for Claude, ChatGPT, and any assistant that speaks MCP; your language and communication profile travel with you. Payment by secure Square checkout; Spling never sees your card." />
 
 <meta property="og:title" content="Spling — Your AI assistant is your mouth" />
-<meta property="og:description" content="Order in your language, without speaking, anywhere. One connector for Claude, ChatGPT, and any assistant that speaks MCP — your profile travels with you." />
+<meta property="og:description" content="Order without speaking — in any language, with any voice, or with no voice at all. One connector for Claude, ChatGPT, and any assistant that speaks MCP." />
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://spling.org/" />
 <meta name="twitter:card" content="summary" />
@@ -368,17 +368,18 @@ html:not(.motion) .field-legend{ display: none; }
 }
 @keyframes caret{ 50% { opacity: 0; } }
 
-/* the receipt — the brand gradient, worn like the logo */
+/* The receipt — thermal paper. Ink on paper, monochrome throughout;
+   the pickup code is the single accent. Layout and animation unchanged. */
 .order-card{
   align-self: flex-start;
   width: min(400px, 96%);
-  background: var(--purple);
-  background-image: var(--grad);
-  color: #fff;
+  background: #FDFDFB;
+  color: #1C1C1A;
+  border: 1px solid #E3E0D8;
   border-radius: 14px;
   padding: 22px 24px;
   font-family: var(--mono);
-  box-shadow: 0 26px 70px -22px rgba(94,61,204,.75), 0 4px 14px -6px rgba(94,61,204,.4);
+  box-shadow: 0 18px 44px -24px rgba(28,28,26,.30);
 }
 @media (min-width: 760px){
   .order-card{ width: 420px; }
@@ -387,28 +388,28 @@ html:not(.motion) .field-legend{ display: none; }
   font-size: 0.78rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  opacity: 0.85;
+  color: #1C1C1A;
 }
 .order-card .item{
   display: flex; justify-content: space-between; gap: 16px;
   margin-top: 14px; font-size: 1rem;
 }
-.order-card .mods{ font-size: 0.88rem; opacity: 0.85; margin-top: 2px; }
+.order-card .mods{ font-size: 0.88rem; color: #1C1C1A; margin-top: 2px; }
 .order-card .rule{
   border: 0;
-  border-top: 2px dashed rgba(255,255,255,.45);
+  border-top: 1px dashed #B8B4AA;      /* thermal-paper rule */
   margin: 16px 0;
 }
 .order-card .total{
   display: flex; justify-content: space-between;
   font-weight: 600; font-size: 1.05rem;
 }
-.order-card .paid{ margin-top: 6px; font-size: 0.82rem; opacity: 0.85; }
+.order-card .paid{ margin-top: 6px; font-size: 0.82rem; color: #1C1C1A; }
 .pickup{
   margin-top: 16px;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  background: var(--magenta);          /* the accent: exactly once on this page */
-  color: var(--ink);
+  background: var(--purple);           /* the receipt's single accent */
+  color: #fff;                         /* 6.9:1 — AA at every size */
   border-radius: 9px;
   padding: 10px 16px;
   font-weight: 600;
@@ -416,6 +417,89 @@ html:not(.motion) .field-legend{ display: none; }
 .pickup .code{ font-size: 1.3rem; letter-spacing: 0.12em; }
 .pickup .lbl{ font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; }
 .hero-close{ grid-column: wide; margin-top: 30px; max-width: 46ch; }
+
+/* ——— Waitlist — the page's only action ——— */
+.waitlist{
+  grid-column: wide;
+  margin-top: clamp(1.8rem, 1.4rem + 1.6vw, 2.6rem);
+  max-width: 34rem;
+}
+.waitlist .wl-label{
+  display: block;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(1.05rem, 0.98rem + 0.5vw, 1.25rem);
+  margin-bottom: 10px;
+}
+.waitlist .wl-row{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.waitlist input[type="email"]{
+  flex: 1 1 15rem;
+  min-width: 0;
+  font-family: var(--body);
+  font-size: 1rem;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--hair);
+  border-radius: 9px;
+  padding: 13px 15px;
+}
+.waitlist input[type="email"]:focus-visible{
+  outline: 3px solid var(--purple);
+  outline-offset: 2px;
+  border-color: var(--purple);
+}
+.waitlist button{
+  flex: none;
+  font-family: var(--body);
+  font-weight: 700;
+  font-size: 1rem;
+  color: #fff;
+  background: var(--purple);
+  border: 1px solid var(--purple);
+  border-radius: 9px;
+  padding: 13px 22px;
+  cursor: pointer;
+}
+.waitlist button:hover{ background: #5235B4; border-color: #5235B4; }
+.waitlist .wl-note{
+  margin-top: 10px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.waitlist .wl-msg{
+  margin-top: 12px;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+.waitlist .wl-msg:empty{ display: none; }
+.waitlist .wl-msg.ok{ color: var(--purple); }
+.waitlist .wl-msg.err{ color: #9A1B1B; }        /* 7.1:1 on paper — errors are never colour-only */
+.waitlist .wl-hp{
+  position: absolute; left: -9999px;
+  width: 1px; height: 1px; overflow: hidden;
+}
+.ink .waitlist .wl-note{ color: var(--bubble); }
+.ink .waitlist .wl-msg.ok{ color: #C9B6F5; }
+.ink .waitlist .wl-msg.err{ color: #FFB4B4; }
+.ink .waitlist input[type="email"]{ border-color: var(--hair-p); }
+
+/* the typed / no-voice demo reuses the hero components verbatim */
+#typed{ padding-top: 0; }
+.typed-h{
+  grid-column: wide;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(1.25rem, 1.1rem + 1vw, 1.6rem);
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  max-width: 30ch;
+  margin-bottom: 0;
+}
+#typed .chat{ margin-top: clamp(1.6rem, 1.2rem + 1.6vw, 2.4rem); max-width: 780px; }
 
 /* flying token chips (motion only; created by JS) */
 .fly-chip{
@@ -707,6 +791,14 @@ html.motion .ticker.paused .track{ animation-play-state: paused; }
   font-weight: 600;
 }
 #works .works-p{ margin-top: 28px; }
+.fn{ text-decoration: none; }
+.fn sup{ font-size: 0.7em; padding-left: 1px; }
+.ink .fn{ color: var(--paper); }
+.in-build{
+  margin-top: 2.4em;
+  font-size: 0.95rem;
+  color: var(--ink);
+}
 .sub-h{
   font-family: var(--display);
   font-weight: 700;
@@ -731,6 +823,9 @@ html.motion .ticker.paused .track{ animation-play-state: paused; }
   gap: 12px;
 }
 .care-visual .msg{ font-size: 1rem; max-width: 100%; }
+/* the staged receipt is the hero receipt, not yet paid */
+.care-visual .order-card{ width: 100%; }
+.order-card.staged .paid{ letter-spacing: 0.02em; }
 .confirm-chip{
   align-self: flex-end;
   position: relative;
@@ -781,6 +876,7 @@ html.motion .ticker.paused .track{ animation-play-state: paused; }
   display: block;
   font-family: var(--mono);
   font-size: 0.72rem;
+  font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--purple);
@@ -1063,9 +1159,12 @@ html.io .row:nth-child(3).in{ transition-delay: 180ms; }
 
 /* caregiver — IO is the primary mechanism in both tiers */
 html.motion #care .care-visual .msg,
+html.motion #care .care-visual .order-card,
 html.motion #care .confirm-chip{ opacity: 0; transform: translateY(12px); transition: opacity 450ms var(--ease-exit), transform 450ms var(--ease-exit); }
 html.motion #care .care-visual.in .msg,
+html.motion #care .care-visual.in .order-card,
 html.motion #care .care-visual.in .confirm-chip{ opacity: 1; transform: none; }
+html.motion #care .care-visual.in .order-card{ transition-delay: 250ms; }
 html.motion #care .care-visual.in .confirm-chip{ transition-delay: 600ms; }
 html.motion #care .confirm-chip svg path{ stroke-dasharray: 1; stroke-dashoffset: 1; }
 html.motion #care .care-visual.tap .confirm-chip{ animation: tapdown 240ms var(--ease-stamp); }
@@ -1111,7 +1210,23 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
       <span class="mask"><span class="mline">Your AI assistant</span></span>
       <span class="mask"><span class="mline">is your mouth.<svg viewBox="0 0 220 16" preserveAspectRatio="none" aria-hidden="true" focusable="false"><defs><linearGradient id="ulgrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#0641A9"/><stop offset="0.5" stop-color="#5E3DCC"/><stop offset="1" stop-color="#B639ED"/></linearGradient></defs><path d="M3,11 C 58,4 132,14 217,7" pathLength="1"/></svg></span></span>
     </h1>
-    <p class="sub">Order in your language, without speaking, anywhere.</p>
+    <p class="sub">Order without speaking — in any language, with any voice,
+      or with no voice at all.</p>
+
+    <form class="waitlist" id="wl-hero-form" name="waitlist" method="POST"
+          action="/" data-netlify="true" netlify-honeypot="bot-field" novalidate>
+      <input type="hidden" name="form-name" value="waitlist">
+      <input type="hidden" name="source" value="hero">
+      <p class="wl-hp"><label>Leave this empty <input name="bot-field" tabindex="-1" autocomplete="off"></label></p>
+      <label class="wl-label" for="wl-hero">Be first when the connector opens</label>
+      <div class="wl-row">
+        <input type="email" id="wl-hero" name="email" required autocomplete="email"
+               aria-describedby="wl-hero-note wl-hero-msg">
+        <button type="submit">Join the waitlist</button>
+      </div>
+      <p class="wl-note" id="wl-hero-note">Email only. Used once, to tell you it’s live.</p>
+      <p class="wl-msg" id="wl-hero-msg" role="status" tabindex="-1"></p>
+    </form>
 
     <!-- The field: the same order rendered as sound, then as language, then as data -->
     <p class="visually-hidden">
@@ -1175,6 +1290,45 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
     <p class="quiet hero-close" id="m-close">
       That’s the whole product. You wrote in your language. The kitchen got exact
       menu items in theirs. No one spoke.
+    </p>
+  </section>
+
+  <!-- The same order again, with no voice involved at any point -->
+  <section class="g" id="typed" aria-labelledby="typed-h">
+    <h2 id="typed-h" class="typed-h">Typed, not spoken — the same order from an AAC device or a keyboard.</h2>
+    <p class="visually-hidden">
+      A second exchange, and nothing about it was said out loud. The customer types
+      four words on a keyboard or composes them on an AAC device: “large latte, oat
+      milk”. The assistant replies: “Done — sent to Fern Café.” The receipt that
+      arrives is identical to the first one — Fern Café, one large latte with oat
+      milk, $6.25, paid by secure checkout, pickup code S P L dash 9 C 7 D. Same
+      order, same accuracy, no voice at any point.
+    </p>
+    <div class="chat" aria-hidden="true">
+      <div class="msg user">
+        <span class="who">You · Typed</span>
+        <span class="line">large latte, oat milk</span>
+      </div>
+      <div class="msg assistant">
+        <span class="who">Your assistant</span>
+        <span class="line">Done — sent to Fern Café. Here’s your order.</span>
+      </div>
+      <div class="order-card" lang="en">
+        <div class="shop">Fern Café · Order confirmed</div>
+        <div class="item"><span>1× Large Latte</span><span>$6.25</span></div>
+        <div class="mods">Oat Milk</div>
+        <hr class="rule" />
+        <div class="total"><span>Total</span><span>$6.25</span></div>
+        <div class="paid">Paid · Square secure checkout</div>
+        <div class="pickup">
+          <span class="lbl">Pickup code</span>
+          <span class="code">SPL-9C7D</span>
+        </div>
+      </div>
+    </div>
+    <p class="quiet hero-close">
+      Identical receipt. The restaurant cannot tell which of these two orders was
+      spoken, because neither of them was.
     </p>
   </section>
 
@@ -1262,8 +1416,8 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
 
     <div class="del-prose">
       <p>
-        A human-run drive-through gets the order right about 85 times in 100. The AI
-        voice systems replacing them currently do a little worse. The reasons aren’t
+        A human-run drive-through gets the order right about 85 times in 100.<a class="fn" href="#sources" aria-label="See sources for drive-through accuracy figures"><sup>1</sup></a>
+        The AI voice systems replacing them currently do a little worse. The reasons aren’t
         mysterious: road noise, cheap speakers, accents, second languages, speech
         differences. And if the spoken channel fails you entirely — because you’re
         deaf, because you use an AAC device, because today your voice won’t cooperate —
@@ -1277,9 +1431,66 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
     </div>
   </section>
 
+  <!-- 05 · Caregiver staging -->
+  <section class="g" id="care" aria-labelledby="care-h">
+    <div class="catch" aria-hidden="true">03 — For someone you love</div>
+    <div class="care-grid">
+      <div class="care-cols">
+        <div class="care-copy">
+          <h2 id="care-h">Ordering for someone you love</h2>
+          <p>
+            Sometimes the person ordering isn’t the person eating. A parent, a support worker,
+            a friend can stage the whole order — right items, right modifiers, allergens already
+            enforced — and the person it belongs to finishes it with a single tap. Their order,
+            their confirmation, their independence. Just less typing.
+          </p>
+          <p class="visually-hidden">
+            A smaller exchange shows it. The assistant says “Anna staged your usual —
+            confirm when you’re ready?” and a receipt is shown, waiting: Fern Café, one
+            medium decaf latte with oat milk, $5.40, marked “Staged by Anna · awaiting
+            your confirmation”. The person it belongs to answers with a single tap:
+            Confirm.
+          </p>
+        </div>
+        <div class="care-visual" id="care-visual" aria-hidden="true">
+          <div class="msg assistant">
+            <span class="who">Your assistant</span>
+            <span class="line">Anna staged your usual — confirm when you’re ready?</span>
+          </div>
+          <div class="order-card staged" lang="en">
+            <div class="shop">Fern Café · Staged order</div>
+            <div class="item"><span>1× Medium Decaf Latte</span><span>$5.40</span></div>
+            <div class="mods">Oat Milk</div>
+            <hr class="rule" />
+            <div class="total"><span>Total</span><span>$5.40</span></div>
+            <div class="paid">Staged by Anna · awaiting your confirmation</div>
+          </div>
+          <span class="confirm-chip"><span class="ring"></span>Confirm
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2.5,8.5 L6.5,12.5 L13.5,4" pathLength="1"/></svg>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <form class="waitlist" id="wl-care-form" name="waitlist" method="POST"
+          action="/" data-netlify="true" netlify-honeypot="bot-field" novalidate>
+      <input type="hidden" name="form-name" value="waitlist">
+      <input type="hidden" name="source" value="caregiver">
+      <p class="wl-hp"><label>Leave this empty <input name="bot-field" tabindex="-1" autocomplete="off"></label></p>
+      <label class="wl-label" for="wl-care">Be first when the connector opens</label>
+      <div class="wl-row">
+        <input type="email" id="wl-care" name="email" required autocomplete="email"
+               aria-describedby="wl-care-note wl-care-msg">
+        <button type="submit">Join the waitlist</button>
+      </div>
+      <p class="wl-note" id="wl-care-note">Email only. Used once, to tell you it’s live.</p>
+      <p class="wl-msg" id="wl-care-msg" role="status" tabindex="-1"></p>
+    </form>
+  </section>
+
   <!-- 03 · Who this is for — accessibility, stated first and plainly -->
   <section class="g ink" id="who" aria-labelledby="who-h">
-    <div class="catch" aria-hidden="true">03 — Who this is for</div>
+    <div class="catch" aria-hidden="true">04 — Who this is for</div>
     <h2 id="who-h" class="who-h">Built for the people the speaker fails.</h2>
     <p class="who-lead">
       Not as a setting you go and switch on. As the reason the product exists.
@@ -1314,7 +1525,7 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
 
   <!-- 04 · The three things only Spling does -->
   <section class="g" id="travels" aria-labelledby="rows-h">
-    <div class="catch" aria-hidden="true">04 — What only Spling does</div>
+    <div class="catch" aria-hidden="true">05 — What only Spling does</div>
     <h2 id="rows-h">Three things nobody else is building.</h2>
     <p class="rows-lead">
       Ordering, payments and reservations are solved — Spling rides those rails rather
@@ -1360,7 +1571,7 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
 
   <!-- 04 · Works with -->
   <section class="g" id="works" aria-labelledby="works-h">
-    <div class="catch" aria-hidden="true">05 — One connector, any assistant</div>
+    <div class="catch" aria-hidden="true">06 — One connector, any assistant</div>
     <h2 id="works-h" class="visually-hidden">One connector, any assistant</h2>
     <p class="works-intro" aria-hidden="true">Works with</p>
     <p class="works-name" aria-hidden="true"><span class="mask"><span class="mline">Claude</span></span></p>
@@ -1396,44 +1607,15 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
       Checkout happens through a secure Square link on your own screen.
       <strong>Spling never sees your card.</strong>
     </p>
+
+    <p class="in-build">The connector is in build. The waitlist gets it first.</p>
   </section>
 
-  <!-- 05 · Caregiver staging -->
-  <section class="g" id="care" aria-labelledby="care-h">
-    <div class="catch" aria-hidden="true">06 — For someone you love</div>
-    <div class="care-grid">
-      <div class="care-cols">
-        <div class="care-copy">
-          <h2 id="care-h">Ordering for someone you love</h2>
-          <p>
-            Sometimes the person ordering isn’t the person eating. A parent, a support worker,
-            a friend can stage the whole order — right items, right modifiers, allergens already
-            enforced — and the person it belongs to finishes it with a single tap. Their order,
-            their confirmation, their independence. Just less typing.
-          </p>
-          <p class="visually-hidden">
-            A second, smaller exchange: the assistant says “Anna staged your usual — one medium
-            decaf latte with oat milk, $5.40. Confirm?” and the user answers with one tap: Confirm.
-          </p>
-        </div>
-        <div class="care-visual" id="care-visual" aria-hidden="true">
-          <div class="msg assistant">
-            <span class="who">Your assistant</span>
-            <span class="line">Anna staged your usual — 1× Medium Decaf Latte, Oat Milk · $5.40. Confirm?</span>
-          </div>
-          <span class="confirm-chip"><span class="ring"></span>Confirm
-            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2.5,8.5 L6.5,12.5 L13.5,4" pathLength="1"/></svg>
-          </span>
-        </div>
-      </div>
-    </div>
-  </section>
 
   <!-- Merchant — the quietest object on the page -->
   <section class="g" id="merchant" aria-labelledby="merchant-h">
-    <h2 id="merchant-h" class="visually-hidden">For merchants</h2>
     <div class="box">
-      <span class="mtag" aria-hidden="true">For merchants</span>
+      <h2 class="mtag" id="merchant-h">For merchants</h2>
       <p class="quiet">
         Running a restaurant on Square? <strong style="color:var(--ink)">You’re already
         compatible.</strong> Orders arrive in your point of sale as ordinary, exact tickets —
@@ -1451,11 +1633,75 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
   style choice; it’s the point.</p>
   <p><a href="accessibility.html">Accessibility statement</a></p>
   <p>© 2026 R-evolv Inc. · <a href="mailto:hello@spling.org">hello@spling.org</a></p>
+  <p class="fnote" id="sources"><strong>Sources.</strong> Drive-through order-accuracy figures come from
+  the published annual drive-through studies — the
+  <a href="https://www.intouchinsight.com/resources/">Intouch Insight Drive-Thru Study</a> and
+  <a href="https://www.qsrmagazine.com/">QSR Magazine’s Drive-Thru Performance Study</a>.
+  Accuracy rates vary year to year and by brand; “about 85 times in 100” is the
+  approximate human-operated baseline these studies report.</p>
+
   <p class="prm-note">This page works completely without motion. System reduce-motion is honored everywhere.</p>
   <div class="ghost" aria-hidden="true">Spling</div>
 </footer>
 
 <script>
+/* ═══════════════════════════════════════════════════════════
+   WAITLIST — progressive enhancement only.
+   With JS off the forms are ordinary POSTs and still work. With
+   JS on, submission happens in place, the result is announced via
+   role="status", and focus moves to the message so keyboard and
+   screen-reader users are told what happened without hunting.
+   Independent of the motion tier: never gated on prefers-reduced-motion.
+   ═══════════════════════════════════════════════════════════ */
+(function () {
+  "use strict";
+  var forms = document.querySelectorAll(".waitlist");
+  if (!forms.length || !window.fetch) return;
+
+  Array.prototype.forEach.call(forms, function (form) {
+    var input = form.querySelector('input[type="email"]');
+    var msg = form.querySelector(".wl-msg");
+    var btn = form.querySelector("button");
+    if (!input || !msg || !btn) return;
+
+    function say(text, kind) {
+      msg.textContent = text;
+      msg.className = "wl-msg " + kind;
+      input.setAttribute("aria-invalid", kind === "err" ? "true" : "false");
+      msg.focus({ preventScroll: true });
+    }
+
+    form.addEventListener("submit", function (e) {
+      var value = input.value.trim();
+      if (!value || !input.checkValidity()) {
+        e.preventDefault();
+        say("That doesn’t look like an email address — please check it and try again.", "err");
+        return;
+      }
+      e.preventDefault();
+      btn.disabled = true;
+      var body = new URLSearchParams(new FormData(form)).toString();
+      fetch(form.getAttribute("action") || "/", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body
+      }).then(function (res) {
+        if (!res.ok) throw new Error(res.status);
+        form.reset();
+        say("You’re on the list. We’ll email you once — when the connector opens.", "ok");
+      }).catch(function () {
+        say("Something went wrong sending that. Email hello@spling.org and we’ll add you by hand.", "err");
+      }).then(function () {
+        btn.disabled = false;
+      });
+    });
+
+    input.addEventListener("input", function () {
+      if (msg.textContent) { msg.textContent = ""; msg.className = "wl-msg"; input.setAttribute("aria-invalid", "false"); }
+    });
+  });
+})();
+
 /* ═══════════════════════════════════════════════════════════
    THE FIELD — one order, four forms.
    The same ~1200 particles are a voice waveform, then noise,

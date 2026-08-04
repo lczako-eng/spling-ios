@@ -89,36 +89,75 @@ footer.site a{ color: inherit; }
     we ask you to hold us to.
   </p>
 
-  <h2>What we build to</h2>
+  <h2>The standard we target</h2>
+  <p>
+    <strong>WCAG 2.2 Level AA</strong>, with AAA contrast on body text wherever the
+    palette allows it. That is the floor, not the ambition.
+  </p>
+
+  <h2>What is implemented today</h2>
   <ul>
-    <li>WCAG 2.2 AA as the floor, with AAA contrast for body text.</li>
-    <li>Full keyboard navigation with visible focus indicators on every interactive element.</li>
-    <li>Semantic landmarks and headings, so screen readers can move through the page structurally.</li>
-    <li>The animated conversation on our home page has a complete text narration for
-        screen readers, and respects <code>prefers-reduced-motion</code> — if your system
-        asks for reduced motion, you get a calm, static page.</li>
-    <li>Body text is set in Atkinson Hyperlegible, designed by the Braille Institute
-        for low-vision readers.</li>
-    <li>No information is conveyed by color alone; no content flashes.</li>
+    <li><strong>Reduced motion is honoured completely.</strong> The home page is authored
+        so its finished, still state is the default; animation is added only when your
+        system says it is welcome, and is removed again immediately if you change that
+        setting mid-visit. With reduced motion on, the page runs zero animations — the
+        particle field is replaced by a plain table saying the same thing.</li>
+    <li><strong>Every animation is narrated.</strong> The particle field, both order
+        demos, the drive-through scene and the caregiver exchange each carry a written
+        description for screen readers that says what happens and why it matters. No
+        information exists only in motion.</li>
+    <li><strong>Atkinson Hyperlegible</strong> for body text, designed by the Braille
+        Institute for low-vision readers.</li>
+    <li><strong>Full keyboard navigation</strong> with visible focus indicators on every
+        interactive element, on both light and dark sections. There is a skip link, and
+        while the opening animation plays there is a second link to skip it.</li>
+    <li><strong>Semantic landmarks and headings</strong>, so screen readers can move
+        through the page structurally rather than linearly.</li>
+    <li><strong>The waitlist form</strong> has a visible label (never a placeholder
+        standing in for one), announces success and errors through a live region, moves
+        focus to the result, and works without JavaScript.</li>
+    <li><strong>The scrolling language ticker can be paused</strong> from the keyboard.</li>
+    <li>No information is conveyed by colour alone. Nothing flashes. Non-English text
+        carries the correct language attributes so screen readers pronounce it properly.</li>
+  </ul>
+
+  <h2>Known gaps</h2>
+  <p>
+    Being specific is more useful than claiming perfection:
+  </p>
+  <ul>
+    <li>Body links sit at AA contrast rather than AAA, because the brand colour is fixed.
+        Links are underlined, so colour is never the only signal.</li>
+    <li>Type is loaded from Google Fonts. If that request fails, the page falls back to
+        your system fonts — readable, but not Atkinson Hyperlegible.</li>
+    <li>The site has not yet been through a formal audit with an external testing
+        organisation, or user testing with AAC users. Both are planned before the
+        connector opens publicly, and we would rather say so than imply otherwise.</li>
   </ul>
 
   <h2>The product itself</h2>
   <p>
-    The same standard applies past the website. Spling is used through the assistant
-    you already use — Claude or ChatGPT — in whatever way you already use it: typed,
-    spoken to your own device, or through your AAC setup. Orders are transmitted as
-    structured data, so nothing about your speech, hearing, or language ever needs
-    to pass through a drive-through speaker. Your communication profile is yours:
-    it shapes how ordering works, and it is never shared with merchants.
+    The same standard applies past the website. Spling is used through whichever
+    assistant you already use, in whatever way you already use it: typed, spoken to
+    your own device, or composed on an AAC system. Orders are transmitted as structured
+    data, so nothing about your speech, hearing, or language ever needs to pass through
+    a drive-through speaker. Your communication profile is yours: it shapes how ordering
+    works, and it is never shared with merchants.
+  </p>
+  <p>
+    The connector itself is still in build. This page describes what it is being built
+    to do, and we would rather be plain about that than let a website imply something
+    is shipping when it isn’t.
   </p>
 
-  <h2>Where we fall short</h2>
+  <h2>Telling us about a barrier</h2>
   <p>
     If any part of this site or product doesn’t work with your screen reader, switch
     device, magnifier, AAC system, or anything else you use — that’s a bug, and we’d
     genuinely like to hear about it. Write to
     <a href="mailto:hello@spling.org">hello@spling.org</a> with whatever detail is easy
-    to share. A person reads these, and we’ll reply.
+    to share; a rough description is plenty, and you never need to file a formal report.
+    A person reads these, and we’ll reply.
   </p>
 
   <p><a href="index.html">← Back to the front page</a></p>
