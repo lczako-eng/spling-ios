@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Accessibility — Spling</title>
+<meta name="description" content="Spling's accessibility statement: what we've built for, what standard we hold ourselves to, and how to tell us when we fall short." />
+<link rel="icon" type="image/png" href="assets/Short_logo-removebg.png" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root{
+  --ink:  #0B0A12;
+  --paper:#F5F3EE;
+  --purple:#5E3DCC;
+  --muted:#4C4964;
+  --hair: rgba(11,10,18,.14);
+}
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce){ html { scroll-behavior: auto; } }
+body{
+  font-family: 'Atkinson Hyperlegible', system-ui, sans-serif;
+  font-size: 1.125rem;
+  line-height: 1.65;
+  background: var(--paper);
+  color: var(--ink);
+}
+::selection{ background: var(--purple); color: var(--paper); }
+a{ color: inherit; text-decoration: underline; text-decoration-color: var(--purple); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+a:hover{ text-decoration-thickness: 3px; }
+a:focus-visible{ outline: 3px solid var(--purple); outline-offset: 3px; border-radius: 4px; }
+.skip-link{
+  position: absolute; left: -9999px; top: 16px; z-index: 100;
+  background: var(--ink); color: var(--paper);
+  padding: 12px 18px; border-radius: 8px; font-weight: 700; text-decoration: none;
+}
+.skip-link:focus{ left: 16px; }
+.col{ max-width: 680px; margin-inline: auto; padding-inline: 24px; }
+header.site{ padding: 40px 0 0; }
+.wordmark{
+  font-family: 'Bricolage Grotesque', system-ui, sans-serif;
+  font-weight: 800; font-size: 1.375rem; letter-spacing: -0.02em;
+  color: var(--ink); text-decoration: none;
+}
+main{ padding: 48px 0 24px; }
+h1{
+  font-family: 'Bricolage Grotesque', system-ui, sans-serif;
+  font-weight: 800; font-size: clamp(2rem, 6vw, 2.8rem);
+  line-height: 1.08; letter-spacing: -0.02em;
+  margin-bottom: 24px;
+}
+h2{
+  font-family: 'Bricolage Grotesque', system-ui, sans-serif;
+  font-weight: 700; font-size: 1.4rem; letter-spacing: -0.01em;
+  margin: 40px 0 12px;
+}
+p + p{ margin-top: 1em; }
+ul{ margin: 12px 0 0 1.2em; }
+li + li{ margin-top: 8px; }
+footer.site{
+  border-top: 1px solid var(--hair);
+  margin-top: 56px; padding: 32px 0 64px;
+  font-size: 0.95rem; color: var(--muted);
+}
+footer.site a{ color: inherit; }
+</style>
+</head>
+<body>
+
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site col">
+  <a class="wordmark" href="index.html">Spling</a>
+</header>
+
+<main id="main" class="col">
+  <h1>Accessibility at Spling</h1>
+
+  <p>
+    Spling exists because a common transaction — ordering food — quietly excludes
+    people the spoken channel fails: people with speech differences, deaf and
+    hard-of-hearing people, AAC users, and people ordering in a language that
+    isn’t the local one. Accessibility is not a feature of this product.
+    It is the product. So this page is not a legal formality; it is the standard
+    we ask you to hold us to.
+  </p>
+
+  <h2>What we build to</h2>
+  <ul>
+    <li>WCAG 2.2 AA as the floor, with AAA contrast for body text.</li>
+    <li>Full keyboard navigation with visible focus indicators on every interactive element.</li>
+    <li>Semantic landmarks and headings, so screen readers can move through the page structurally.</li>
+    <li>The animated conversation on our home page has a complete text narration for
+        screen readers, and respects <code>prefers-reduced-motion</code> — if your system
+        asks for reduced motion, you get a calm, static page.</li>
+    <li>Body text is set in Atkinson Hyperlegible, designed by the Braille Institute
+        for low-vision readers.</li>
+    <li>No information is conveyed by color alone; no content flashes.</li>
+  </ul>
+
+  <h2>The product itself</h2>
+  <p>
+    The same standard applies past the website. Spling is used through the assistant
+    you already use — Claude or ChatGPT — in whatever way you already use it: typed,
+    spoken to your own device, or through your AAC setup. Orders are transmitted as
+    structured data, so nothing about your speech, hearing, or language ever needs
+    to pass through a drive-through speaker. Your communication profile is yours:
+    it shapes how ordering works, and it is never shared with merchants.
+  </p>
+
+  <h2>Where we fall short</h2>
+  <p>
+    If any part of this site or product doesn’t work with your screen reader, switch
+    device, magnifier, AAC system, or anything else you use — that’s a bug, and we’d
+    genuinely like to hear about it. Write to
+    <a href="mailto:hello@spling.org">hello@spling.org</a> with whatever detail is easy
+    to share. A person reads these, and we’ll reply.
+  </p>
+
+  <p><a href="index.html">← Back to the front page</a></p>
+</main>
+
+<footer class="site">
+  <div class="col">
+    <p>© 2026 R-evolv Inc. · <a href="mailto:hello@spling.org">hello@spling.org</a></p>
+  </div>
+</footer>
+
+</body>
+</html>

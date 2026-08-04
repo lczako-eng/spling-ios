@@ -1,5 +1,18 @@
 Spling
 
+> **Status (August 2026): this iOS-first implementation is retired.**
+> The concept survives; the implementation does not. Spling v2 is a remote MCP server
+> that lets AI assistants place validated, structured orders on a user's behalf via
+> Square — carrying the user's language and communication profile so the spoken channel
+> is never required at the point of sale.
+>
+> The active build lives in [`spling-server/`](spling-server/) —
+> start with [`spling-server/CLAUDE.md`](spling-server/CLAUDE.md) (build rules),
+> [`spling-server/docs/BUILD_PLAN.md`](spling-server/docs/BUILD_PLAN.md) (the week, day by day),
+> and the product specs [`Spling_Spec_v1.pdf`](spling-server/docs/Spling_Spec_v1.pdf) /
+> [`Spling_Spec_v2.pdf`](spling-server/docs/Spling_Spec_v2.pdf).
+> Everything below documents the superseded iOS/NFC approach and is kept for reference.
+
 Modular Accessibility-First Ordering Infrastructure
 Proprietary System — All Rights Reserved © 2026 Laszlo Czako
 
