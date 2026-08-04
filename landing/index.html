@@ -791,6 +791,21 @@ html.motion .ticker.paused .track{ animation-play-state: paused; }
   font-weight: 600;
 }
 #works .works-p{ margin-top: 28px; }
+/* roadmap list — plain rows, no cards; nothing here is shipped */
+.next-list{ grid-column: wide; list-style: none; }
+.next-list li{
+  padding: clamp(1.3rem, 1rem + 1.4vw, 2rem) 0;
+  border-top: 1px solid var(--hair);
+  max-width: 62ch;
+}
+.next-list li:last-child{ border-bottom: 1px solid var(--hair); }
+.next-list h3{
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(1.15rem, 1.05rem + 0.8vw, 1.45rem);
+  letter-spacing: -0.01em;
+  margin-bottom: 8px;
+}
 .fn{ text-decoration: none; }
 .fn sup{ font-size: 0.7em; padding-left: 1px; }
 .ink .fn{ color: var(--paper); }
@@ -1230,12 +1245,14 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
 
     <!-- The field: the same order rendered as sound, then as language, then as data -->
     <p class="visually-hidden">
-      An animation shows one order changing form four times. First it is sound:
-      a voice waveform. Then the sound scatters, the way a drive-through speaker
-      loses it. Then the particles reassemble into the words the customer actually
-      said in Hungarian, “nagy lattét zabtejjel”. Then those same particles
-      resolve into the exact line the restaurant’s register receives in English,
-      “1× Large Latte · Oat Milk”, and finally into the pickup code SPL-4B2F.
+      An animation shows one order changing form, over and over. First it is
+      sound: a voice waveform. Then the sound scatters, the way a drive-through
+      speaker loses it. Then the particles reassemble into the words a customer
+      actually used to ask for it — in a different language every time it runs,
+      drawn from more than seventy, including Thai, Amharic, Punjabi, Arabic,
+      Korean and Māori. Then those same particles resolve into the one exact line
+      the restaurant’s register receives, “1× Large Latte · Oat Milk”, and finally
+      into the pickup code SPL-4B2F. Any language in, one exact ticket out.
       Nothing is lost between the voice and the ticket, because the sound was
       never the carrier.
     </p>
@@ -1246,7 +1263,9 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
         <span class="hint" id="field-hint">Move your cursor through it</span>
       </p>
       <div class="field-static" aria-hidden="true">
-        <div class="fs-row"><span class="fs-from" lang="hu">nagy lattét zabtejjel</span><span class="fs-to">1× Large Latte · Oat Milk</span></div>
+        <div class="fs-row"><span class="fs-from" lang="hu">nagy latte, zabtej</span><span class="fs-to">1× Large Latte · Oat Milk</span></div>
+        <div class="fs-row"><span class="fs-from" lang="th">ลาเต้แก้วใหญ่ นมโอ๊ต</span><span class="fs-to">1× Large Latte · Oat Milk</span></div>
+        <div class="fs-row"><span class="fs-from" lang="am">ትልቅ ላቴ፣ የአጃ ወተት</span><span class="fs-to">1× Large Latte · Oat Milk</span></div>
         <div class="fs-row"><span class="fs-from">spoken sound</span><span class="fs-to">structured data</span></div>
         <div class="fs-row"><span class="fs-from">any language</span><span class="fs-to">SPL-4B2F</span></div>
       </div>
@@ -1611,6 +1630,51 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
     <p class="in-build">The connector is in build. The waitlist gets it first.</p>
   </section>
 
+  <!-- 07 · What's being built next -->
+  <section class="g" id="next" aria-labelledby="next-h">
+    <div class="catch" aria-hidden="true">07 — Being built next</div>
+    <h2 id="next-h">What comes after the connector</h2>
+    <p class="rows-lead">
+      None of this is live yet. It’s written down here because it’s what the
+      architecture is being built to allow, and we’d rather be held to a published
+      list than quietly ship less.
+    </p>
+    <ul class="next-list">
+      <li>
+        <h3>The code on your wrist</h3>
+        <p>A pickup code is four characters and a tap — it belongs on a watch, not
+        buried in a phone. Someone stages an order for you; it arrives on your wrist;
+        you raise it at the counter and it’s verified. No app to find, no screen to
+        unlock, no explaining yourself at the window. For a caregiver ordering
+        remotely, that hand-off is the whole interaction.</p>
+      </li>
+      <li>
+        <h3>Menus you’ve programmed already</h3>
+        <p>Your regular orders, saved and named, ready to send in one action — the
+        same idea as an AAC board, applied to ordering. If you eat the same thing at
+        the same place every week, you should never have to compose it twice, and
+        the person behind the counter should get an identical ticket every time.</p>
+      </li>
+      <li>
+        <h3>Nothing that has to be heard</h3>
+        <p>For deaf and hard-of-hearing customers the failure isn’t only speaking —
+        it’s the reply. “Was that a medium?” shouted through a speaker is the part
+        that ends the transaction. Order status, substitutions, sold-out items and
+        the ready signal all arrive as text you can read at your own pace, and
+        anything the restaurant needs to ask comes back the same way.</p>
+      </li>
+      <li>
+        <h3>Caregiver staging, properly</h3>
+        <p>A parent, support worker or partner composes; the person the order belongs
+        to confirms. Their allergens, their profile, their confirmation — a caregiver
+        can prepare an order but never silently place one. Independence is the point,
+        so the last tap is always theirs.</p>
+      </li>
+    </ul>
+    <p class="in-build">Want one of these sooner than the others? Tell us at
+      <a href="mailto:hello@spling.org">hello@spling.org</a> — it moves the order we build in.</p>
+  </section>
+
 
   <!-- Merchant — the quietest object on the page -->
   <section class="g" id="merchant" aria-labelledby="merchant-h">
@@ -1721,12 +1785,98 @@ window.SplingField = (function () {
   var STATES = [
     { key: "voice", label: "Voice",                    ms: 3400 },
     { key: "noise", label: "Lost at the speaker",      ms: 1500 },
-    { key: "hu",    label: "What you said",            ms: 2900 },
+    { key: "said",  label: "What you said",            ms: 2900 },
     { key: "en",    label: "What the register gets",   ms: 3200 },
     { key: "code",  label: "Your pickup code",         ms: 2600 }
   ];
 
-  var canvas, ctx, labelEl, dpr = 1, W = 0, H = 0;
+  /* The same order — one large latte with oat milk — as people actually ask for
+     it. The field draws a different one every cycle, in random order, so the
+     page never argues "one language" but "any language". A language whose
+     script has no font on this device samples to almost nothing; those are
+     detected and skipped at run time rather than rendering as tofu boxes. */
+  var LANGS = [
+    ["en","English","large latte, oat milk"],
+    ["es","Spanish","latte grande, leche de avena"],
+    ["fr","French","grand latte, lait d’avoine"],
+    ["de","German","großer Latte, Hafermilch"],
+    ["it","Italian","caffellatte grande, latte d’avena"],
+    ["pt","Portuguese","latte grande, leite de aveia"],
+    ["nl","Dutch","grote latte, havermelk"],
+    ["pl","Polish","duża latte, mleko owsiane"],
+    ["cs","Czech","velké latte, ovesné mléko"],
+    ["sk","Slovak","veľké latte, ovsené mlieko"],
+    ["hu","Hungarian","nagy latte, zabtej"],
+    ["ro","Romanian","latte mare, lapte de ovăz"],
+    ["hr","Croatian","veliki latte, zobno mlijeko"],
+    ["sl","Slovenian","velika latte, ovseno mleko"],
+    ["sq","Albanian","latte i madh, qumësht tërshëre"],
+    ["el","Greek","μεγάλο λάτε, γάλα βρώμης"],
+    ["ru","Russian","большой латте, овсяное молоко"],
+    ["uk","Ukrainian","велике лате, вівсяне молоко"],
+    ["bg","Bulgarian","голямо лате, овесено мляко"],
+    ["sr","Serbian","велики лате, овсено млеко"],
+    ["mk","Macedonian","големо лате, овесено млеко"],
+    ["tr","Turkish","büyük latte, yulaf sütü"],
+    ["az","Azerbaijani","böyük latte, yulaf südü"],
+    ["kk","Kazakh","үлкен латте, сұлы сүті"],
+    ["uz","Uzbek","katta latte, suli suti"],
+    ["mn","Mongolian","том латте, овъёсны сүү"],
+    ["fi","Finnish","iso latte, kauramaito"],
+    ["et","Estonian","suur latte, kaerapiim"],
+    ["lv","Latvian","liels latte, auzu piens"],
+    ["lt","Lithuanian","didelis latte, avižų pienas"],
+    ["sv","Swedish","stor latte, havremjölk"],
+    ["da","Danish","stor latte, havremælk"],
+    ["nb","Norwegian","stor latte, havremelk"],
+    ["is","Icelandic","stór latte, haframjólk"],
+    ["ga","Irish","latte mór, bainne coirce"],
+    ["cy","Welsh","latte mawr, llaeth ceirch"],
+    ["ca","Catalan","latte gran, llet de civada"],
+    ["gl","Galician","latte grande, leite de avea"],
+    ["eu","Basque","latte handia, olo esnea"],
+    ["mt","Maltese","latte kbir, ħalib tal-ħafur"],
+    ["ar","Arabic","لاتيه كبير، حليب الشوفان"],
+    ["he","Hebrew","לאטה גדול, חלב שיבולת שועל"],
+    ["fa","Persian","لاته بزرگ، شیر جو دوسر"],
+    ["ur","Urdu","بڑا لاٹے، جئی کا دودھ"],
+    ["ku","Kurdish","latteya mezin, şîrê ceh"],
+    ["hi","Hindi","बड़ा लाटे, ओट मिल्क"],
+    ["ne","Nepali","ठूलो लाटे, ओट दूध"],
+    ["bn","Bengali","বড় ল্যাটে, ওট মিল্ক"],
+    ["pa","Punjabi","ਵੱਡਾ ਲਾਟੇ, ਓਟ ਮਿਲਕ"],
+    ["gu","Gujarati","મોટું લાટે, ઓટ મિલ્ક"],
+    ["ta","Tamil","பெரிய லாட்டே, ஓட் பால்"],
+    ["te","Telugu","పెద్ద లాటే, ఓట్ మిల్క్"],
+    ["kn","Kannada","ದೊಡ್ಡ ಲಾಟೆ, ಓಟ್ ಹಾಲು"],
+    ["ml","Malayalam","വലിയ ലാറ്റെ, ഓട്സ് പാൽ"],
+    ["si","Sinhala","ලොකු ලාටේ, ඕට් කිරි"],
+    ["th","Thai","ลาเต้แก้วใหญ่ นมโอ๊ต"],
+    ["lo","Lao","ລາເຕ້ແກ້ວໃຫຍ່ ນົມໂອດ"],
+    ["km","Khmer","ឡាតេធំ ទឹកដោះគោអូត"],
+    ["ka","Georgian","დიდი ლატე, შვრიის რძე"],
+    ["hy","Armenian","մեծ լատտե, վարսակի կաթ"],
+    ["am","Amharic","ትልቅ ላቴ፣ የአጃ ወተት"],
+    ["zh-Hans","Chinese","大杯拿铁，燕麦奶"],
+    ["zh-Hant","Chinese (Trad.)","大杯拿鐵，燕麥奶"],
+    ["ja","Japanese","ラージラテ、オーツミルク"],
+    ["ko","Korean","라지 라떼, 귀리 우유"],
+    ["vi","Vietnamese","latte lớn, sữa yến mạch"],
+    ["id","Indonesian","latte besar, susu oat"],
+    ["ms","Malay","latte besar, susu oat"],
+    ["tl","Tagalog","malaking latte, oat milk"],
+    ["sw","Swahili","latte kubwa, maziwa ya oti"],
+    ["yo","Yoruba","latte nla, wàrà oat"],
+    ["ha","Hausa","babban latte, madarar oat"],
+    ["zu","Zulu","ilatte enkulu, ubisi lwe-oat"],
+    ["so","Somali","latte weyn, caano oat"],
+    ["haw","Hawaiian","latte nui, waiū oat"],
+    ["mi","Māori","latte nui, miraka oat"],
+    ["sm","Samoan","latte tele, susu oat"]
+  ];
+  var langBag = [];
+
+  var canvas, ctx, labelEl, dpr = 1, W = 0, H = 0, saidLabel = "What you said";
   var parts = [], N = 0, clouds = {}, idx = 0, tState = 0;
   var raf = null, last = 0, visible = true, hidden = false, running = false;
   var mx = -9999, my = -9999, ro = null, io = null;
@@ -1806,15 +1956,14 @@ window.SplingField = (function () {
   function build() {
     N = W < 560 ? 1100 : (W < 900 ? 1900 : 2600);
 
-    var disp = "'Bricolage Grotesque', system-ui, sans-serif";
     var mono = "'Spline Sans Mono', ui-monospace, monospace";
     /* narrow screens get the shorter phrasing so the glyphs stay big enough
        to read as type rather than dust */
     var narrow = W < 620;
 
-    clouds.hu   = ordered(fit(textCloud(narrow ? "lattét zabtejjel" : "nagy lattét zabtejjel", disp, "800", 0.94), N));
     clouds.en   = ordered(fit(textCloud(narrow ? "Large Latte · Oat" : "1× Large Latte · Oat Milk", mono, "600", 0.94), N));
     clouds.code = ordered(fit(textCloud("SPL-4B2F", mono, "600", 0.7), N));
+    nextLanguage();
 
     if (!parts.length) {
       parts = new Array(N);
@@ -1833,6 +1982,34 @@ window.SplingField = (function () {
     /* colour by index — index tracks x after the left-to-right sort, so the
        whole field always carries the brand ramp regardless of state */
     for (var k = 0; k < N; k++) parts[k].c = Math.min(31, Math.floor(k / N * 32));
+  }
+
+  /* Draw a fresh language into clouds.said. Shuffled bag, so every language
+     appears before any repeats and the order differs each pass. A script with
+     no font on this device rasterises to almost nothing — we detect that by
+     point count and move on, rather than showing a row of tofu boxes. */
+  function nextLanguage() {
+    var disp = "'Bricolage Grotesque', system-ui, 'Noto Sans', sans-serif";
+    var floor = Math.max(120, N * 0.12);
+    for (var tries = 0; tries < 8; tries++) {
+      if (!langBag.length) {
+        langBag = LANGS.slice();
+        for (var i = langBag.length - 1; i > 0; i--) {
+          var j = Math.floor(Math.random() * (i + 1));
+          var t = langBag[i]; langBag[i] = langBag[j]; langBag[j] = t;
+        }
+      }
+      var pick = langBag.pop();
+      var raw = textCloud(pick[2], disp, "800", 0.94);
+      if (raw.length / 2 >= floor) {
+        clouds.said = ordered(fit(raw, N));
+        saidLabel = "What you said · " + pick[1];
+        return;
+      }
+    }
+    /* every attempt came back empty (no fonts at all) — fall back to English */
+    clouds.said = clouds.en;
+    saidLabel = "What you said";
   }
 
   /* ---- per-state targets ---- */
@@ -1884,7 +2061,10 @@ window.SplingField = (function () {
       tState = 0;
       idx = (idx + 1) % STATES.length;
       st = STATES[idx];
-      if (labelEl) labelEl.textContent = st.label;
+      /* a new language is chosen while the field is still scattered, so the
+         sampling cost never lands on a frame the eye is tracking */
+      if (st.key === "said") nextLanguage();
+      if (labelEl) labelEl.textContent = st.key === "said" ? saidLabel : st.label;
     }
 
     if (st.key === "voice" || st.key === "noise") setTargets(st.key, now);
