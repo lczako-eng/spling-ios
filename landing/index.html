@@ -1428,35 +1428,40 @@ html.motion #care .care-visual.tap .confirm-chip svg path{
 
     <!-- Screen-reader narration of the exchange -->
     <p class="visually-hidden">
-      Here is what an order looks like. A customer writes to their assistant in
-      Hungarian: <span lang="hu">“Rendelnél nekem egy nagy lattét zabtejjel?”</span> —
-      would you order me a large latte with oat milk? The assistant replies:
-      “Done — sent to Fern Café.” The café’s register receives the order in English
-      as an exact menu item: one large latte with oat milk, $6.25, paid by secure
-      checkout. The customer gets the pickup code S P L dash 4 B 2 F.
+      Here is what a transaction looks like, and it changes every few seconds to a
+      different language and a different kind of counter. In the first, a customer
+      writes to their assistant in Hungarian:
+      <span lang="hu">“Rendelnél nekem egy nagy lattét zabtejjel?”</span> — would you
+      order me a large latte with oat milk? The assistant replies: “Done — sent to
+      Fern Café.” The café’s register receives it in English as exact menu entries:
+      one large latte with oat milk, $6.25, paid by secure checkout, pickup code
+      S P L dash 4 B 2 F. Later ones show a cheeseburger ordered in Spanish, pad thai
+      in Thai, an accessible hotel room booked in French and a prescription collected
+      in Spanish at a pharmacy — each arriving as an exact structured transaction the
+      business already understands.
     </p>
 
     <div class="chat" id="hero-chat" aria-hidden="true">
       <div class="msg user" id="m-user">
-        <span class="who">You · Hungarian</span>
+        <span class="who" id="m-who">You · Hungarian</span>
         <span class="plain" lang="hu"></span><span class="rich" lang="hu">Rendelnél nekem egy <span class="tok" id="tok-1">nagy</span> <span class="tok" id="tok-2">lattét</span> <span class="tok" id="tok-3">zabtejjel</span>?</span>
       </div>
 
       <div class="msg assistant" id="m-assistant">
         <span class="who">Your assistant</span>
-        <span class="line">Done — sent to Fern Café. Here’s your order.</span>
+        <span class="line" id="m-reply">Done — sent to Fern Café. Here’s your order.</span>
       </div>
 
       <div class="order-card" id="m-card" lang="en">
-        <div class="shop" style="--r:0">Fern Café · Order confirmed</div>
-        <div class="item" style="--r:1"><span>1× Large Latte</span><span>$6.25</span></div>
-        <div class="mods" style="--r:2">Oat Milk</div>
+        <div class="shop" style="--r:0" id="m-shop">Fern Café · Order confirmed</div>
+        <div class="item" style="--r:1"><span id="m-item">1× Large Latte</span><span id="m-price">$6.25</span></div>
+        <div class="mods" style="--r:2" id="m-mods">Oat Milk</div>
         <hr class="rule" style="--r:3" />
-        <div class="total" style="--r:4"><span>Total</span><span>$6.25</span></div>
-        <div class="paid" style="--r:5">Paid · Square secure checkout</div>
+        <div class="total" style="--r:4"><span>Total</span><span id="m-total">$6.25</span></div>
+        <div class="paid" style="--r:5" id="m-paid">Paid · Square secure checkout</div>
         <div class="pickup" style="--r:6" id="m-pickup">
           <span class="lbl">Pickup code</span>
-          <span class="code">SPL-4B2F</span>
+          <span class="code" id="m-code">SPL-4B2F</span>
         </div>
       </div>
     </div>
@@ -2531,7 +2536,127 @@ window.SplingField = (function () {
   var mPickup = document.getElementById("m-pickup");
   var mClose = document.getElementById("m-close");
   var plain = mUser ? mUser.querySelector(".plain") : null;
-  var HU = "Rendelnél nekem egy nagy lattét zabtejjel?";
+  /* The hero exchange rotates. Each entry is a complete scene — the language,
+     the words a person actually used, and the exact transaction the business
+     received — because a bubble that changed language while the receipt stayed
+     a latte would argue the opposite of the point. [brackets] mark the payload
+     words that get chipped and flown into the card. */
+  var EXCHANGES = [
+    { lang: "hu", name: "Hungarian", venue: "Fern Café",
+      said: "Rendelnél nekem egy [nagy] [lattét] [zabtejjel]?",
+      shop: "Fern Café · Order confirmed",
+      item: "1× Large Latte", price: "$6.25", mods: "Oat Milk", total: "$6.25",
+      paid: "Paid · Square secure checkout", code: "SPL-4B2F" },
+
+    { lang: "es", name: "Spanish", venue: "Blue Line Grill",
+      said: "¿Me pides una [hamburguesa con queso] [sin cebolla]?",
+      shop: "Blue Line Grill · Order confirmed",
+      item: "1× Cheeseburger", price: "$8.90", mods: "No Onion", total: "$8.90",
+      paid: "Paid · Square secure checkout", code: "SPL-7QK3" },
+
+    { lang: "th", name: "Thai", venue: "Suda Kitchen",
+      said: "ขอ [ผัดไทยกุ้ง] [ไม่เผ็ด] ค่ะ",
+      shop: "Suda Kitchen · Order confirmed",
+      item: "1× Prawn Pad Thai", price: "$14.50", mods: "Not Spicy", total: "$14.50",
+      paid: "Paid · Square secure checkout", code: "SPL-M2XW" },
+
+    { lang: "ar", name: "Arabic", venue: "Halabi Grill", rtl: true,
+      said: "[شاورما دجاج] [بدون ثوم]",
+      shop: "Halabi Grill · Order confirmed",
+      item: "1× Chicken Shawarma", price: "$11.00", mods: "No Garlic", total: "$11.00",
+      paid: "Paid · Square secure checkout", code: "SPL-J9RT" },
+
+    { lang: "ko", name: "Korean", venue: "Hana Coffee",
+      said: "[아이스 아메리카노] [두 잔] 주세요",
+      shop: "Hana Coffee · Order confirmed",
+      item: "2× Iced Americano", price: "$9.00", mods: "No sugar", total: "$9.00",
+      paid: "Paid · Square secure checkout", code: "SPL-B4HN" },
+
+    /* Not food. Same layer, same exactness, different counter. */
+    { lang: "fr", name: "French", venue: "Hôtel Saint-Clair", noun: "booking",
+      said: "[chambre accessible], [arrivée tardive]",
+      shop: "Hôtel Saint-Clair · Booking confirmed",
+      item: "1× Accessible King Room", price: "$189.00", mods: "Late arrival · Roll-in shower",
+      total: "$189.00", paid: "Paid · Square secure checkout", code: "SPL-C6VD" },
+
+    { lang: "es", name: "Spanish", venue: "Farmacia Núñez", noun: "request",
+      said: "[recoger receta], apellido [García]",
+      shop: "Farmacia Núñez · Request confirmed",
+      item: "Prescription Pickup", price: "—", mods: "Photo ID required · García",
+      total: "No charge", paid: "No payment through Spling · show this code", code: "SPL-D8LF" },
+
+    { lang: "ja", name: "Japanese", venue: "Narita T1 Service Desk", noun: "request",
+      said: "[車椅子の座席]を[お願いします]",
+      shop: "Narita T1 Service Desk · Request confirmed",
+      item: "Wheelchair Seating Request", price: "—", mods: "Gate 42 · assistance on arrival",
+      total: "No charge", paid: "No payment through Spling · show this code", code: "SPL-R3TK" }
+  ];
+
+  function plainOf(ex) { return ex.said.replace(/[\[\]]/g, ""); }
+
+  /** [payload] words become chips the flight animation can pick up. */
+  function richOf(ex) {
+    var n = 0;
+    return ex.said.replace(/\[([^\]]+)\]/g, function (_m, word) {
+      n++;
+      return '<span class="tok" id="tok-' + n + '">' + word + "</span>";
+    });
+  }
+
+  var exIndex = 0;
+  var HU = plainOf(EXCHANGES[0]);
+  var rotateTimer = null;
+
+  /** Write one complete scene into the exchange. */
+  function renderExchange(ex) {
+    var set = function (id, text) { var el = document.getElementById(id); if (el) el.textContent = text; };
+    var who = document.getElementById("m-who");
+    var rich = document.querySelector("#m-user .rich");
+    var plain = document.querySelector("#m-user .plain");
+
+    if (who) who.textContent = "You · " + ex.name;
+    if (rich) {
+      rich.innerHTML = richOf(ex);
+      rich.setAttribute("lang", ex.lang);
+      if (ex.rtl) rich.setAttribute("dir", "rtl"); else rich.removeAttribute("dir");
+    }
+    if (plain) {
+      plain.setAttribute("lang", ex.lang);
+      if (ex.rtl) plain.setAttribute("dir", "rtl"); else plain.removeAttribute("dir");
+    }
+
+    /* a pharmacy takes a request, a hotel takes a booking — same rule the
+       server applies with transaction_noun */
+    set("m-reply", "Done — sent to " + ex.venue + ". Here’s your " + (ex.noun || "order") + ".");
+    set("m-shop", ex.shop);
+    set("m-item", ex.item);
+    set("m-price", ex.price);
+    set("m-mods", ex.mods);
+    set("m-total", ex.total);
+    set("m-paid", ex.paid);
+    set("m-code", ex.code);
+  }
+
+  /* Rotate the whole scene together, on a crossfade rather than a snap. Starts
+     only after the opening take has finished, so the two never fight. */
+  function startRotating() {
+    if (rotateTimer) return;
+    var chat = document.getElementById("hero-chat");
+    if (!chat) return;
+    rotateTimer = setInterval(function () {
+      if (document.hidden) return;                 /* never rotate into a blank tab */
+      exIndex = (exIndex + 1) % EXCHANGES.length;
+      chat.classList.add("swapping");
+      setTimeout(function () {
+        renderExchange(EXCHANGES[exIndex]);
+        chat.classList.remove("swapping");
+      }, 260);
+    }, 3600);
+  }
+
+  function stopRotating() {
+    if (rotateTimer) { clearInterval(rotateTimer); rotateTimer = null; }
+  }
 
   function finishHero() {
     /* listener removal is unconditional so a PRM flip can never leak them */
@@ -2550,6 +2675,7 @@ window.SplingField = (function () {
     }
     hero.classList.add("played");
     docEl.classList.add("hero-played");
+    startRotating();
   }
   function heroKeySkip(e) {
     if (e.key === "Tab" || e.key === "Shift") return;   /* let keyboard users reach the skip links */
@@ -2722,6 +2848,7 @@ window.SplingField = (function () {
   }
 
   function disableMotion() {
+    stopRotating();
     if (window.SplingField) window.SplingField.stop();
     finishHero();                                        /* also removes the window listeners */
     clearTimers();
