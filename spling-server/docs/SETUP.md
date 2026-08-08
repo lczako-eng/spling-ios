@@ -13,15 +13,33 @@ method, or a credential. What follows is written so it can be followed exactly.
 **Pick the region before you click Create, because it cannot be changed afterwards.**
 Changing it later means creating a second project and migrating everything into it.
 
-For R-evolv, the region should be **Canada (Central) — `ca-central-1`**, for three reasons
-that compound:
+For R-evolv, the region should be **Canada (Central) — `ca-central-1`** — but not for the
+reason people usually give.
 
-1. **PIPEDA.** Communication profiles are health-adjacent. Keeping them in Canada removes
-   an entire category of cross-border question before anyone asks it.
-2. **The customer list.** Hospitals, government service desks and public institutions are
-   on Spling's own venue list, and Canadian public-sector procurement asks where the data
-   lives. A US region turns a routine form into a negotiation.
+**PIPEDA does not require data residency.** It permits transfers outside Canada provided
+the organization stays accountable for the data and is transparent that transfers happen.
+Anyone who tells you Canadian personal data must stay in Canada under PIPEDA is wrong. The
+real arguments are these three:
+
+1. **EU adequacy.** Canada holds an adequacy decision from the European Commission for
+   commercial organizations subject to PIPEDA — the United States does not hold an
+   equivalent unqualified one. For a product intended to run everywhere, a Canadian region
+   is the single jurisdiction that reaches both North America and the EEA without a
+   transfer mechanism bolted on. That makes this a *global* choice, not a patriotic one.
+   Confirm the current state of that decision with counsel before relying on it in a
+   contract; it has been reviewed more than once.
+2. **Public-sector procurement.** Hospitals, government service desks and public
+   institutions are on Spling's own venue list. Some Canadian public-sector privacy law —
+   British Columbia and Nova Scotia most notably — has carried genuine residency
+   requirements, and Quebec's Law 25 imposes assessment obligations on transfers out of
+   the province. This is where residency actually bites, and it bites on exactly the
+   customers this product wants.
 3. **It is free to be right now and expensive to fix later.**
+
+**Do not shard the database by geography.** One project, one region, worldwide. The
+accuracy ledger and the lexicon corpus are only worth something because they aggregate;
+splitting them by country to satisfy a requirement nobody has imposed yet destroys the
+asset to solve a hypothetical. Add a second region when a signed contract demands it.
 
 While you are on that screen: create the project in an **R-evolv organization**, not a
 personal one, and do **not** reuse the Rooted project (`CLAUDE.md`, Environment).
