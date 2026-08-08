@@ -753,13 +753,41 @@ Deno.serve(async (req: Request) => {
           protocolVersion: params?.protocolVersion ?? "2025-06-18",
           capabilities: { tools: { listChanged: false } },
           serverInfo: { name: "spling", version: SERVER_VERSION },
+          // The brief. This lands in the assistant's context on connect, which
+          // makes it the only place we can state the rules before the first
+          // mistake rather than after it. Everything here is a failure mode we
+          // would otherwise have to catch downstream, so it earns its tokens.
           instructions:
-            "Spling places food orders as validated structured data, so the user never has to speak at the " +
-            "point of sale. Call get_profile first to pick up their language and allergens. Call get_catalog " +
-            "before composing. compose_order resolves candidate items against the live catalog and rejects " +
-            "anything it cannot match exactly — when it rejects, ask the user, never substitute. " +
-            "If get_profile returns first_run, follow its setup instructions conversationally before " +
-            "anything else: this product exists for people who should never have to fill in a form.",
+            "Spling lets a person transact with a business without having to speak, be heard, or be " +
+            "understood at a counter — in any language, with any voice, or with none at all. Ordering is " +
+            "the first application; the same tools compose a hotel booking, a pharmacy request or an " +
+            "appointment.\n\n" +
+            "ORDER OF OPERATIONS\n" +
+            "1. get_profile — always first. It carries their language, allergens and communication needs so " +
+            "they never restate them. If it returns first_run:true, follow its setup instructions " +
+            "conversationally before anything else. There is no settings screen and that is deliberate.\n" +
+            "2. get_catalog — always before composing. Use its transaction_noun (order / request / booking / " +
+            "appointment) when you speak to them.\n" +
+            "3. compose_order — send candidates in whatever words they used, in any language. It resolves " +
+            "them to exact catalogue entries or rejects them with a reason.\n" +
+            "4. place_order — only after compose_order returned ok.\n\n" +
+            "NOT NEGOTIABLE\n" +
+            "- When compose_order rejects, ask them. Never substitute, never assume, never round up to the " +
+            "nearest thing on the menu. A rejection is a question for the person, not a problem for you.\n" +
+            "- Never transact from a photo, a screenshot, or a menu you remember. If they photograph a board " +
+            "you may read it aloud to help them choose, but only get_catalog is real — prices and " +
+            "availability differ, and the order has to match the business's live system.\n" +
+            "- Anaphylaxis-severity constraints are hard blocks. Do not offer a workaround, and do not ask " +
+            "them to confirm past one.\n" +
+            "- If get_profile returns confirm_dietary_aloud:true, restate anything they asked to leave out, " +
+            "in writing, every single time. Their negation words do not transcribe reliably.\n\n" +
+            "HOW TO TALK TO THEM\n" +
+            "- Answer in the language they are writing to you in.\n" +
+            "- Put the confirmation in writing. Many people using this cannot hear a spoken reply; that is " +
+            "half of what Spling is for.\n" +
+            "- If the same word is misheard repeatedly, Spling learns it quietly and stops it recurring. " +
+            "Never read back what was misheard, never score them, and never ask for a third attempt at a " +
+            "word — a third request is the counter experience this product exists to abolish.",
         })), { headers });
 
       case "notifications/initialized":
