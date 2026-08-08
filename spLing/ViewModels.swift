@@ -649,3 +649,80 @@ class AIMenuViewModel: ObservableObject {
         errorMessage  = nil
     }
 }
+
+// MARK: - Correction ViewModel
+//
+// Separate from ReviewViewModel on purpose. A review is something a person
+// chooses to write; a correction is something that happened to them. Sharing
+// state between the two is how the correction ends up as an optional extra
+// field on a review form that most people skip.
+
+@MainActor
+class CorrectionViewModel: ObservableObject {
+    @Published var kind:     CorrectionKind = .missingItem
+    @Published var itemName: String         = ""
+    @Published var received: String         = ""
+    @Published var note:     String         = ""
+    @Published var state:    CorrectionState = .idle
+
+    enum CorrectionState: Equatable {
+        case idle, submitting, submitted, failed(String)
+    }
+
+    /// The lines on the order, so the person taps the one that went wrong
+    /// instead of typing its name and spelling it differently every time.
+    /// Free text is what makes a ledger unattributable.
+    func itemChoices(for order: Order) -> [String] {
+        var seen = Set<String>()
+        return order.items.compactMap { line in
+            let name = line.menuItem.name
+            return seen.insert(name).inserted ? name : nil
+        }
+    }
+
+    /// Whether the ledger would learn anything from what has been filled in so
+    /// far. Mirrors CorrectionService.validate, so the button is disabled for
+    /// exactly the reasons the service would refuse.
+    func canSubmit(for order: Order) -> Bool {
+        state != .submitting && blocker(for: order) == nil
+    }
+
+    /// The single question still unanswered, shown under the form so the
+    /// disabled button is never a mystery.
+    func blocker(for order: Order) -> String? {
+        do { try CorrectionService.shared.validate(draft(for: order)); return nil }
+        catch { return error.localizedDescription }
+    }
+
+    private func draft(for order: Order) -> Correction {
+        Correction(
+            orderID:  order.id,
+            vendorID: order.vendorID,
+            kind:     kind,
+            itemName: itemName,
+            received: received,
+            note:     note
+        )
+    }
+
+    func submit(for order: Order) async {
+        guard canSubmit(for: order) else { return }
+        state = .submitting
+        do {
+            try await CorrectionService.shared.submit(draft(for: order))
+            HapticManager.shared.notification(.success)
+            state = .submitted
+        } catch {
+            HapticManager.shared.notification(.error)
+            state = .failed(error.localizedDescription)
+        }
+    }
+
+    func reset() {
+        kind = .missingItem
+        itemName = ""
+        received = ""
+        note = ""
+        state = .idle
+    }
+}
