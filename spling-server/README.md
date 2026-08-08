@@ -13,7 +13,7 @@ Ordering is the first application. The communication layer is the product; see
 ## Status
 
 All nine tools are implemented, across two rails. The composition engine — the part that
-must never be wrong — is covered by 59 tests that run with no network, no database and no
+must never be wrong — is covered by 80 tests that run with no network, no database and no
 install step.
 
 The engine is domain-neutral: the same code validates a café order, a hotel booking, a
@@ -71,6 +71,9 @@ same files run under `deno test`.
   `compose.ts`.
 - **`ledger_test.ts` (17)** — correction attribution, refusal to guess a modifier when a
   line has two, and an accuracy figure that is never quotable below n=384.
+- **`auth_test.ts` (21)** — the OAuth layer: PKCE S256 (and the refusal of `plain`),
+  exact redirect matching so a prefix cannot steal a code, rejection of the grant types
+  OAuth 2.1 removed, and discovery documents that advertise only what is implemented.
 - **`protocol_test.ts` (10)** — the wiring. Square catalog mapping, the order payload
   (which must carry catalog IDs and never human strings), quantity typing, order-state
   mapping, PAM export shape, the nine-tool surface, and a check that no secret is
@@ -113,23 +116,58 @@ place of Square and a reference code in place of a checkout link.
     into Spling (003). No payment leg, deliberately.
   - `ledger.ts` — correction attribution and honest accuracy arithmetic
   - `store.ts` — Postgres persistence; strips health-adjacent fields from the audit log
+  - `auth.ts` / `oauth_routes.ts` / `oauth_store.ts` — OAuth 2.1 + DCR, so signing in is
+    a button rather than a pasted secret
   - `pam.ts` — Portable AI Memory export
   - `*_test.ts` — the suites below
 - `supabase/migrations/`
   - `001_init.sql` — core schema, RLS everywhere
   - `002_accuracy_intelligence.sql` — the five questions, answerable
   - `003_offerings.sql` — catalogues for businesses without a POS
+  - `004_oauth.sql` — clients, codes and tokens (hashed at rest)
 - `docs/BUILD_PLAN.md` — 7 days, 7 checkpoints
 - `docs/WEBSITE_BRIEF.md` — spling.org direction
 
-## Before real users
+## Signing in
 
-The shared bearer authenticates the *caller*, not a person — every request resolves to
-one subject. That is correct for a single-tenant sandbox and wrong for anything else,
-since profiles are per-person by definition.
+**OAuth 2.1 + Dynamic Client Registration is implemented.** This exists for a usability
+reason before a technical one: the shared bearer made Spling a programmer's product — to
+use it you opened developer settings and pasted a 64-character secret. The people this is
+built for will not do that, and should not have to. OAuth replaces the paste with a
+**"Sign in"** button.
 
-OAuth 2.1 + Dynamic Client Registration is a hard ChatGPT requirement. Every persistence
-call is already keyed by a subject id, so switching over is a change to `subjectFrom()`
-in `index.ts` — deliberately one function, so the migration is not a rewrite.
+It is also a hard ChatGPT requirement, and the entry fee for being listed in an
+assistant's connector directory — which is the only path to installation being one click.
+The same change fixes the usability wall and the distribution wall.
+
+Endpoints, all relative to the function URL:
+
+| Path | What it is |
+|---|---|
+| `/.well-known/oauth-authorization-server` | RFC 8414 metadata |
+| `/.well-known/oauth-protected-resource` | RFC 9728 metadata |
+| `/register` | RFC 7591 dynamic client registration |
+| `/authorize` | consent screen, then the code |
+| `/token` | code exchange + refresh rotation |
+| `/revoke` | RFC 7009 |
+
+An unauthenticated request answers `401` with a `WWW-Authenticate` header pointing at
+discovery — that header is what lets an assistant walk someone through a login instead of
+asking a human for a secret.
+
+Deliberately not implemented: implicit grant, password grant, and PKCE `plain`. OAuth 2.1
+removes them and this server is new, so there is nothing to stay compatible with. Refresh
+tokens rotate on use, and a replayed authorization code revokes the whole grant family.
+
+`SPLING_BEARER` still works for local development. It resolves every caller to one
+subject, which is fine alone and wrong the moment two people use it — they would share a
+profile, including one person's allergens.
+
+## First run
+
+There is no settings screen, deliberately. When `get_profile` finds an empty profile it
+returns `first_run: true` and instructions telling the assistant to set it up
+conversationally — three plain questions, in whatever language the person is already
+writing in, each one skippable, saved as they go so nothing is lost if they stop halfway.
 
 © 2026 R-evolv Inc.

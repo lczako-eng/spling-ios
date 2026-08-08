@@ -29,9 +29,11 @@ import { toPam } from "./pam.ts";
 import { shapeCorrection, InvalidCorrection } from "./ledger.ts";
 import { getProvider, type Catalogue } from "./catalogue.ts";
 import "./directory.ts";   // registers the non-POS rail
+import { handleOAuth, subjectFromAccessToken } from "./oauth_routes.ts";
+import { issuerFrom, wwwAuthenticate } from "./auth.ts";
 
 const SPLING_BEARER = Deno.env.get("SPLING_BEARER") ?? "";
-const SERVER_VERSION = "0.5.0";
+const SERVER_VERSION = "0.6.0";
 
 // ---------------------------------------------------------------------------
 // Tool surface — the nine tools, final.
@@ -206,8 +208,18 @@ async function resolveLocation(args: Record<string, unknown>): Promise<string> {
   return (args.location_id as string) || await defaultLocationId();
 }
 
-/** The authenticated subject. With the shared bearer this is a single tenant. */
-function subjectFrom(_req: Request): string {
+/**
+ * The authenticated subject — one real person.
+ *
+ * OAuth resolves to a verified subject. The shared bearer, when configured,
+ * resolves every caller to ONE subject, which is correct for a single-tenant
+ * sandbox and wrong the moment two people use it: they would share a profile,
+ * including one person's allergens. It stays only as a local development path
+ * and is refused whenever OAuth is available.
+ */
+async function subjectFrom(req: Request): Promise<string> {
+  const viaOAuth = await subjectFromAccessToken(req);
+  if (viaOAuth) return viaOAuth;
   return Deno.env.get("SPLING_DEFAULT_SUBJECT") ?? "00000000-0000-0000-0000-000000000001";
 }
 
@@ -216,7 +228,7 @@ function subjectFrom(_req: Request): string {
 // ---------------------------------------------------------------------------
 
 async function callTool(name: string, args: Record<string, unknown>, req: Request): Promise<unknown> {
-  const authUserId = subjectFrom(req);
+  const authUserId = await subjectFrom(req);
 
   switch (name) {
     // -----------------------------------------------------------------------
@@ -397,8 +409,49 @@ async function callTool(name: string, args: Record<string, unknown>, req: Reques
     case "get_profile": {
       const profile = await ensureProfile(authUserId);
       const [comm, dietary] = await Promise.all([getCommunicationProfile(profile.id), getDietary(profile.id)]);
+
+      // First run. A brand-new profile is the moment Spling is most likely to
+      // be abandoned, and the people it is for are the least likely to go
+      // hunting for a settings screen — so there isn't one. The assistant is
+      // told to set it up in three plain questions, in whatever language the
+      // person is already using, and to make every one of them skippable.
+      const isNew =
+        !profile.display_name &&
+        profile.compose_language === "en" &&
+        !comm &&
+        dietary.length === 0;
+
+      if (isNew) {
+        return {
+          ok: true,
+          first_run: true,
+          display_name: null,
+          compose_language: profile.compose_language,
+          receipt_language: profile.receipt_language,
+          communication_mode: "none",
+          caretaker_staging_enabled: false,
+          dietary: [],
+          setup:
+            "This person has no profile yet. Do NOT send them to a settings page — there isn't one, " +
+            "and that is deliberate. Set it up conversationally, in the language they are already " +
+            "writing to you in, asking these three things in your own words, one at a time:\n" +
+            "  1. Which language they want to order in. If they are already writing in one, offer it " +
+            "     as the answer rather than asking them to name it.\n" +
+            "  2. Any allergies or dietary needs. Ask plainly — 'anything you need me to avoid?' — " +
+            "     and if they describe something severe, record it with severity 'anaphylaxis' so it " +
+            "     becomes a hard block.\n" +
+            "  3. Whether speaking at counters is difficult for them, in any way. Ask it kindly and " +
+            "     only once. If yes, set communication_mode. If they would rather not say, move on " +
+            "     and never ask again.\n" +
+            "Every question is skippable and the profile works partially filled. Save answers with " +
+            "update_profile as they come, not in one batch at the end, so nothing is lost if they " +
+            "stop halfway. Then carry on with whatever they originally asked for.",
+        };
+      }
+
       return {
         ok: true,
+        first_run: false,
         display_name: profile.display_name,
         compose_language: profile.compose_language,
         receipt_language: profile.receipt_language,
@@ -407,7 +460,7 @@ async function callTool(name: string, args: Record<string, unknown>, req: Reques
         dietary,
         note:
           "Apply these without asking the user to restate them. Anaphylaxis-severity entries are enforced " +
-          "by compose_order and cannot be overridden.",
+          "by compose_order and cannot be overridden. Never ask again for something already recorded here.",
       };
     }
 
@@ -562,9 +615,23 @@ function safeMessage(e: unknown): string {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
 
+  // Discovery, registration, consent, token and revoke are all unauthenticated
+  // by definition — they are how a caller becomes authenticated.
+  const oauth = await handleOAuth(req);
+  if (oauth) return oauth;
+
   const auth = req.headers.get("authorization") ?? "";
-  if (!SPLING_BEARER || auth !== `Bearer ${SPLING_BEARER}`) {
-    return Response.json({ error: "unauthorized" }, { status: 401, headers: CORS });
+  const viaOAuth = await subjectFromAccessToken(req);
+  const viaBearer = SPLING_BEARER.length > 0 && auth === `Bearer ${SPLING_BEARER}`;
+
+  if (!viaOAuth && !viaBearer) {
+    // The WWW-Authenticate header is what turns "paste a token" into "sign in":
+    // it tells the assistant where the authorization server lives, so it can
+    // walk the user through a login instead of asking a human for a secret.
+    return new Response(JSON.stringify({ error: "unauthorized" }), {
+      status: 401,
+      headers: { ...CORS, "Content-Type": "application/json", "WWW-Authenticate": wwwAuthenticate(issuerFrom(req)) },
+    });
   }
 
   const headers = { "Content-Type": "application/json", ...CORS };
@@ -593,7 +660,9 @@ Deno.serve(async (req: Request) => {
             "Spling places food orders as validated structured data, so the user never has to speak at the " +
             "point of sale. Call get_profile first to pick up their language and allergens. Call get_menu " +
             "before composing. compose_order resolves candidate items against the live catalog and rejects " +
-            "anything it cannot match exactly — when it rejects, ask the user, never substitute.",
+            "anything it cannot match exactly — when it rejects, ask the user, never substitute. " +
+            "If get_profile returns first_run, follow its setup instructions conversationally before " +
+            "anything else: this product exists for people who should never have to fill in a form.",
         })), { headers });
 
       case "notifications/initialized":
