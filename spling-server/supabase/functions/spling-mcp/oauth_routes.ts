@@ -16,9 +16,15 @@ import {
   verifyPkce,
 } from "./auth.ts";
 import {
-  createClient, findToken, getClient, markCodeConsumed, revokeGrant, revokeToken,
-  storeCode, storeToken, takeCode,
+  attachSubject, consumePending, createClient, findAnyToken, findToken, getClient,
+  getPending, markCodeConsumed, revokeAllForSubject, revokeGrant, revokeToken,
+  storeCode, storePending, storeToken, takeCode,
 } from "./oauth_store.ts";
+import {
+  PENDING_TTL_S, callbackUrl, challengeFor, escapeHtml, exchangeForSubject, isEmail,
+  linkSentPage, normalizeProvider, sendMagicLink, signInPage, supabaseAuthorizeUrl,
+  troublePage,
+} from "./identity.ts";
 
 const JSON_HEADERS = { "Content-Type": "application/json", "Cache-Control": "no-store" };
 
@@ -33,6 +39,23 @@ function oauthErrorResponse(e: unknown) {
   return json({ error: "server_error", error_description: "The request could not be completed." }, 500);
 }
 
+function html(body: string, status = 200) {
+  return new Response(body, {
+    status,
+    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+  });
+}
+
+/**
+ * Every dead end a person can reach in a browser looks the same and says the
+ * same thing. An expired reference, a forged one and a failed sign-in are
+ * different to us and identical to them — which is the point: the differences
+ * are only useful to someone probing.
+ */
+function trouble(message = "That sign-in link is no longer valid.") {
+  return html(troublePage(message), 400);
+}
+
 // ---------------------------------------------------------------------------
 // the consent screen
 // ---------------------------------------------------------------------------
@@ -40,11 +63,13 @@ function oauthErrorResponse(e: unknown) {
 function consentPage(input: {
   clientName: string;
   action: string;
-  hidden: Record<string, string>;
+  rid: string;
 }): string {
-  const hidden = Object.entries(input.hidden)
-    .map(([k, v]) => `<input type="hidden" name="${k}" value="${escapeHtml(v)}">`)
-    .join("\n      ");
+  // The only thing the browser carries between the two halves of this flow is
+  // the reference. Everything the code is minted from — client, redirect URI,
+  // PKCE challenge, subject — is read back from the row on the server, so a
+  // page in the middle has nothing worth tampering with.
+  const hidden = `<input type="hidden" name="rid" value="${escapeHtml(input.rid)}">`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -99,11 +124,6 @@ function consentPage(input: {
 </html>`;
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
-}
-
 // ---------------------------------------------------------------------------
 // router — returns null when the path is not an OAuth route
 // ---------------------------------------------------------------------------
@@ -152,22 +172,22 @@ export async function handleOAuth(req: Request): Promise<Response | null> {
     }
   }
 
-  // ---- authorize -----------------------------------------------------------
-  if (path.endsWith("/authorize")) {
+  // ---- authorize, first half: park the request and ask who this is ---------
+  //
+  // The assistant's request is validated once, here, and then written down. The
+  // person is about to leave for Google or Apple, and whatever comes back must
+  // be checked against what was agreed before they left — not against whatever
+  // the returning browser claims.
+  if (path.endsWith("/authorize") && req.method === "GET") {
     try {
-      const p = req.method === "POST"
-        ? new URLSearchParams(await req.text())
-        : url.searchParams;
-
+      const p = url.searchParams;
       const clientId = p.get("client_id") ?? "";
       const client = await getClient(clientId);
       if (!client) throw new OAuthError("invalid_client", "Unknown client_id.");
 
       const redirectUri = pickRedirectUri(client.redirect_uris, p.get("redirect_uri") ?? undefined);
-      const state = p.get("state") ?? "";
       const challenge = p.get("code_challenge") ?? "";
       const method = p.get("code_challenge_method") ?? "";
-      const scopes = narrowScopes(p.get("scope") ?? undefined);
 
       if (p.get("response_type") !== "code") {
         throw new OAuthError("unsupported_response_type", "Only the authorization code flow is supported.");
@@ -177,50 +197,120 @@ export async function handleOAuth(req: Request): Promise<Response | null> {
         throw new OAuthError("invalid_request", "PKCE with code_challenge_method=S256 is required.");
       }
 
-      // GET renders consent; POST is the person answering it.
-      if (req.method === "GET") {
-        return new Response(
-          consentPage({
-            clientName: client.client_name,
-            action: `${issuer}/authorize`,
-            hidden: {
-              client_id: clientId,
-              redirect_uri: redirectUri,
-              state,
-              code_challenge: challenge,
-              code_challenge_method: method,
-              scope: scopes.join(" "),
-              response_type: "code",
-            },
-          }),
-          { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } },
-        );
-      }
-
-      const target = new URL(redirectUri);
-      if (p.get("decision") !== "allow") {
-        target.searchParams.set("error", "access_denied");
-        if (state) target.searchParams.set("state", state);
-        return Response.redirect(target.toString(), 302);
-      }
-
-      // The subject. Until a sign-in provider is wired, one identity per client
-      // grant — enough to prove the flow, and never shared across clients the
-      // way the bearer shared it across people.
-      const subject = crypto.randomUUID();
-
-      const code = randomToken(32);
-      await storeCode({
-        code, client_id: clientId, subject, redirect_uri: redirectUri,
-        scopes, code_challenge: challenge, ttlSeconds: CODE_TTL_S,
+      const rid = randomToken(32);
+      await storePending({
+        rid,
+        client_id: clientId,
+        client_name: client.client_name,
+        redirect_uri: redirectUri,
+        state: p.get("state") ?? "",
+        scopes: narrowScopes(p.get("scope") ?? undefined),
+        code_challenge: challenge,
+        // Ours, not the assistant's — held on the person's behalf while they are
+        // away at the identity provider.
+        provider_verifier: randomToken(48),
+        ttlSeconds: PENDING_TTL_S,
       });
 
-      target.searchParams.set("code", code);
-      if (state) target.searchParams.set("state", state);
-      return Response.redirect(target.toString(), 302);
+      return html(signInPage({ clientName: client.client_name, action: `${issuer}/signin`, rid }));
     } catch (e) {
       return oauthErrorResponse(e);
     }
+  }
+
+  // ---- sign in: hand off to Google, Apple, or the mailer -------------------
+  if (path.endsWith("/signin") && req.method === "POST") {
+    const p = new URLSearchParams(await req.text());
+    const rid = p.get("rid") ?? "";
+    const pending = await getPending(rid).catch(() => null);
+    if (!pending) return trouble();
+
+    try {
+      const provider = normalizeProvider(p.get("provider"));
+      const callback = callbackUrl(issuer, rid);
+      const challenge = await challengeFor(pending.provider_verifier);
+
+      if (provider === "email") {
+        const email = (p.get("email") ?? "").trim();
+        if (!isEmail(email)) {
+          return html(signInPage({
+            clientName: pending.client_name,
+            action: `${issuer}/signin`,
+            rid,
+            error: "That does not look like an email address. Try again, or use one of the buttons above.",
+          }), 400);
+        }
+        await sendMagicLink(email, callback, challenge);
+        // Always the same page, whether or not the address is known. Anything
+        // else turns this endpoint into a way to ask "does this person use
+        // Spling?" — which, for this user base, is a question worth protecting.
+        return html(linkSentPage());
+      }
+
+      return Response.redirect(supabaseAuthorizeUrl(provider, callback, challenge), 302);
+    } catch (e) {
+      return trouble(e instanceof OAuthError ? e.message : "Sign-in could not be started.");
+    }
+  }
+
+  // ---- back from the identity provider: now we know who ---------------------
+  if (path.endsWith("/auth/callback") && req.method === "GET") {
+    const rid = url.searchParams.get("rid") ?? "";
+    const pending = await getPending(rid).catch(() => null);
+    if (!pending) return trouble();
+
+    if (url.searchParams.get("error")) {
+      return trouble("Sign-in was cancelled, or the provider refused it.");
+    }
+    const authCode = url.searchParams.get("code") ?? "";
+    if (!authCode) return trouble();
+
+    try {
+      const subject = await exchangeForSubject(authCode, pending.provider_verifier);
+      await attachSubject(rid, subject);
+      return html(consentPage({ clientName: pending.client_name, action: `${issuer}/authorize`, rid }));
+    } catch {
+      return trouble("Sign-in did not complete. Nothing was connected.");
+    }
+  }
+
+  // ---- authorize, second half: the person answers the consent screen -------
+  if (path.endsWith("/authorize") && req.method === "POST") {
+    const p = new URLSearchParams(await req.text());
+    const rid = p.get("rid") ?? "";
+    const pending = await getPending(rid).catch(() => null);
+    if (!pending) return trouble();
+
+    const target = new URL(pending.redirect_uri);
+    if (pending.state) target.searchParams.set("state", pending.state);
+
+    // Single use either way: answered is answered, and a reference that has
+    // been spent cannot be replayed into a second code.
+    await consumePending(rid);
+
+    if (p.get("decision") !== "allow") {
+      target.searchParams.set("error", "access_denied");
+      return Response.redirect(target.toString(), 302);
+    }
+    if (!pending.subject) {
+      // A consent posted without a completed sign-in. There is no one to issue
+      // a code for, so there is nothing to do but stop.
+      return trouble("You need to sign in before connecting.");
+    }
+
+    const code = randomToken(32);
+    await storeCode({
+      code,
+      client_id: pending.client_id,
+      subject: pending.subject,
+      redirect_uri: pending.redirect_uri,
+      scopes: pending.scopes,
+      code_challenge: pending.code_challenge,
+      ttlSeconds: CODE_TTL_S,
+    });
+
+    target.searchParams.set("code", code);
+    return Response.redirect(target.toString(), 302);
   }
 
   // ---- token ---------------------------------------------------------------
@@ -245,9 +335,11 @@ export async function handleOAuth(req: Request): Promise<Response | null> {
         if (!row) throw new OAuthError("invalid_grant", "That code is not valid.");
 
         if (row.consumed_at) {
-          // A code presented twice is an attack signal, not a retry. End the
-          // whole grant rather than guess which presentation was genuine.
-          await revokeGrant(row.subject);
+          // A code presented twice is an attack signal, not a retry. We cannot
+          // tell which presentation was genuine, and we do not know which grant
+          // family the attacker holds — so every live token for that person
+          // goes, and they sign in again.
+          await revokeAllForSubject(row.subject);
           throw new OAuthError("invalid_grant", "That code was already used.");
         }
         if (new Date(row.expires_at).getTime() <= Date.now()) {
@@ -281,12 +373,20 @@ export async function handleOAuth(req: Request): Promise<Response | null> {
       if (grantType === "refresh_token") {
         const presented = p.get("refresh_token") ?? "";
         const row = await findToken(presented, "refresh");
-        if (!row) throw new OAuthError("invalid_grant", "That refresh token is not valid.");
+        if (!row) {
+          // A refresh token that was valid and has already been spent means two
+          // parties hold it, and we cannot tell which one is here. Rotation
+          // alone would lock out whichever arrived second — possibly the real
+          // person while a thief keeps a live family. So the family ends, and
+          // the person signs in again.
+          const spent = await findAnyToken(presented, "refresh");
+          if (spent?.revoked_at) await revokeGrant(spent.grant_id);
+          throw new OAuthError("invalid_grant", "That refresh token is not valid.");
+        }
         if (row.client_id !== clientId) throw new OAuthError("invalid_grant", "Token was issued to another client.");
 
-        // Rotation: the presented refresh token dies here. If it is ever
-        // presented again, findToken returns null and the session is over —
-        // which is what makes a stolen refresh token short-lived.
+        // Rotation: the presented refresh token dies here, and its replacement
+        // is the only live one in the family.
         await revokeToken(presented);
 
         const access = randomToken(32);

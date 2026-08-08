@@ -108,6 +108,85 @@ export async function markCodeConsumed(codeHash: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// pending authorizations (migration 005)
+//
+// The person leaves for Google or Apple mid-flow, so the request has to survive
+// without them. Keeping it server-side also closes a hole the old hidden-field
+// consent form had: the client's PKCE challenge and redirect URI used to be
+// re-posted by the browser, which meant a page in the middle could swap them.
+// Now they are read back from the row the GET created, and the only thing the
+// browser carries is an unguessable reference.
+// ---------------------------------------------------------------------------
+
+export interface PendingRow {
+  rid_hash: string;
+  client_id: string;
+  client_name: string;
+  redirect_uri: string;
+  state: string;
+  scopes: string[];
+  code_challenge: string;
+  provider_verifier: string;
+  subject: string | null;
+  expires_at: string;
+  consumed_at: string | null;
+}
+
+export async function storePending(input: {
+  rid: string;
+  client_id: string;
+  client_name: string;
+  redirect_uri: string;
+  state: string;
+  scopes: string[];
+  code_challenge: string;
+  provider_verifier: string;
+  ttlSeconds: number;
+}): Promise<void> {
+  await pg("oauth_pending", {
+    method: "POST",
+    body: JSON.stringify({
+      rid_hash: await sha256(input.rid),
+      client_id: input.client_id,
+      client_name: input.client_name,
+      redirect_uri: input.redirect_uri,
+      state: input.state,
+      scopes: input.scopes,
+      code_challenge: input.code_challenge,
+      provider_verifier: input.provider_verifier,
+      expires_at: new Date(Date.now() + input.ttlSeconds * 1000).toISOString(),
+    }),
+  });
+}
+
+/** Live rows only: expired or already-redeemed references read as absent. */
+export async function getPending(rid: string): Promise<PendingRow | null> {
+  const hash = await sha256(rid);
+  const rows = await pg(`oauth_pending?rid_hash=eq.${encodeURIComponent(hash)}&select=*&limit=1`);
+  const row: PendingRow | undefined = rows?.[0];
+  if (!row) return null;
+  if (row.consumed_at) return null;
+  if (new Date(row.expires_at).getTime() <= Date.now()) return null;
+  return row;
+}
+
+export async function attachSubject(rid: string, subject: string): Promise<void> {
+  const hash = await sha256(rid);
+  await pg(`oauth_pending?rid_hash=eq.${encodeURIComponent(hash)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ subject }),
+  });
+}
+
+export async function consumePending(rid: string): Promise<void> {
+  const hash = await sha256(rid);
+  await pg(`oauth_pending?rid_hash=eq.${encodeURIComponent(hash)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ consumed_at: new Date().toISOString() }),
+  });
+}
+
+// ---------------------------------------------------------------------------
 // tokens
 // ---------------------------------------------------------------------------
 
@@ -146,15 +225,25 @@ export interface TokenRow {
 }
 
 export async function findToken(token: string, kind: "access" | "refresh"): Promise<TokenRow | null> {
-  const hash = await sha256(token);
-  const rows = await pg(
-    `oauth_tokens?token_hash=eq.${encodeURIComponent(hash)}&kind=eq.${kind}&select=*&limit=1`,
-  );
-  const row = rows?.[0];
+  const row = await findAnyToken(token, kind);
   if (!row) return null;
   if (row.revoked_at) return null;
   if (new Date(row.expires_at).getTime() <= Date.now()) return null;
   return row;
+}
+
+/**
+ * The same lookup, revoked rows included. Used in exactly one place: telling a
+ * refresh token that never existed apart from one that has already been spent.
+ * The first is noise; the second means two parties hold the same token, and
+ * only one of them should.
+ */
+export async function findAnyToken(token: string, kind: "access" | "refresh"): Promise<TokenRow | null> {
+  const hash = await sha256(token);
+  const rows = await pg(
+    `oauth_tokens?token_hash=eq.${encodeURIComponent(hash)}&kind=eq.${kind}&select=*&limit=1`,
+  );
+  return rows?.[0] ?? null;
 }
 
 export async function revokeToken(token: string): Promise<void> {
@@ -172,6 +261,18 @@ export async function revokeToken(token: string): Promise<void> {
  */
 export async function revokeGrant(grantId: string): Promise<void> {
   await pg(`oauth_tokens?grant_id=eq.${encodeURIComponent(grantId)}&revoked_at=is.null`, {
+    method: "PATCH",
+    body: JSON.stringify({ revoked_at: new Date().toISOString() }),
+  });
+}
+
+/**
+ * Every live token belonging to one person. A replayed authorization code is
+ * the one case where we do not know which grant family the attacker holds, so
+ * the only safe answer is all of them.
+ */
+export async function revokeAllForSubject(subject: string): Promise<void> {
+  await pg(`oauth_tokens?subject=eq.${encodeURIComponent(subject)}&revoked_at=is.null`, {
     method: "PATCH",
     body: JSON.stringify({ revoked_at: new Date().toISOString() }),
   });

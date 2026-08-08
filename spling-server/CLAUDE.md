@@ -40,7 +40,7 @@ integrations are commodity infrastructure — inherit them, never rebuild them.
 6. All money is integer cents. Never floats.
 
 ## Phase gates (build in this order)
-- **Phase 1 — get_menu.** MCP server + `get_menu` against Square sandbox catalog.
+- **Phase 1 — get_catalog.** MCP server + `get_catalog` against Square sandbox catalog.
   DONE = Claude connects as custom connector and returns a real menu.
 - **Phase 2 — order lands.** `compose_order`, `place_order`, Square Checkout link,
   `get_order_status`. DONE = 10 consecutive sandbox orders placed and "paid."
@@ -54,7 +54,7 @@ integrations are commodity infrastructure — inherit them, never rebuild them.
 - **Phase 6 — website + polish.** spling.org update per docs/WEBSITE_BRIEF.md.
 
 ## Tool surface (final — 9 tools)
-get_menu · compose_order · place_order · get_order_status · get_profile ·
+get_catalog · compose_order · place_order · get_order_status · get_profile ·
 update_profile · get_history · submit_correction · export_profile
 
 ## Key files
@@ -67,9 +67,12 @@ update_profile · get_history · submit_correction · export_profile
 ## Environment
 - Square Sandbox: create app at developer.squareup.com → use SANDBOX access token.
 - Supabase: new project (do NOT reuse the Rooted project).
+- Supabase Auth: enable Google and Apple providers, keep email on, and add
+  `<function url>/auth/callback` to the redirect allowlist. Those three are the only ways in.
 - Deploy: `supabase functions deploy spling-mcp --no-verify-jwt`
-  (MCP handles its own auth; Phase 1 uses a shared bearer token, Phase 2+ adds OAuth 2.1 + DCR
-  for ChatGPT compatibility).
+  (MCP handles its own auth: OAuth 2.1 + DCR, with sign-in delegated to Google, Apple or an
+  email link. `SPLING_BEARER` is local development only — it resolves every caller to one
+  subject, so two people would share one profile.)
 
 ## Testing an order end-to-end (Phase 2)
 Square sandbox test values: card 4111 1111 1111 1111, any future expiry, CVV 111.

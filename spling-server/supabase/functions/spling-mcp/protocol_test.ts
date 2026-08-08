@@ -173,14 +173,14 @@ test("index.ts declares exactly the nine specified tools", async () => {
   const src = await (await import("node:fs/promises")).readFile(new URL("./index.ts", import.meta.url), "utf8");
   const declared = [...src.matchAll(/^\s{4}name: "([a-z_]+)",$/gm)].map((m) => m[1]);
   eq(declared.sort(), [
-    "compose_order", "export_profile", "get_history", "get_menu", "get_order_status",
+    "compose_order", "export_profile", "get_catalog", "get_history", "get_order_status",
     "get_profile", "place_order", "submit_correction", "update_profile",
   ], "tool surface");
 });
 
 test("no secret is hard-coded anywhere in the function", async () => {
   const fs = await import("node:fs/promises");
-  for (const f of ["index.ts", "square.ts", "store.ts", "compose.ts", "pam.ts", "ledger.ts", "catalogue.ts", "directory.ts", "auth.ts", "oauth_routes.ts", "oauth_store.ts"]) {
+  for (const f of ["index.ts", "square.ts", "store.ts", "compose.ts", "pam.ts", "ledger.ts", "catalogue.ts", "directory.ts", "auth.ts", "oauth_routes.ts", "oauth_store.ts", "identity.ts"]) {
     const src = await fs.readFile(new URL(`./${f}`, import.meta.url), "utf8");
     assert(!/EAAA[A-Za-z0-9_-]{10,}/.test(src), `${f} contains what looks like a Square token`);
     assert(!/eyJ[A-Za-z0-9_-]{20,}\./.test(src), `${f} contains what looks like a JWT`);

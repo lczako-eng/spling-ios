@@ -3,13 +3,13 @@
 //
 // Deploy:  supabase functions deploy spling-mcp --no-verify-jwt
 // Secrets: supabase secrets set SQUARE_ACCESS_TOKEN=... SQUARE_ENV=sandbox \
-//            SPLING_BEARER=... SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=...
+//            SUPABASE_URL=... SUPABASE_ANON_KEY=... SUPABASE_SERVICE_ROLE_KEY=...
 //
 // Transport: MCP Streamable HTTP (POST JSON-RPC 2.0). Remote HTTPS only —
 // ChatGPT does not accept stdio servers, so a hosted endpoint is mandatory.
 //
-// Auth: shared bearer today. OAuth 2.1 + Dynamic Client Registration is
-// required before the ChatGPT path opens; see AUTH NOTE at the bottom.
+// Auth: OAuth 2.1 + Dynamic Client Registration, with sign-in delegated to
+// Google, Apple or an email link. See AUTH NOTE at the bottom.
 //
 // The rule this whole file exists to enforce: the model proposes, the
 // validator disposes. Nothing reaches a merchant that compose.ts has not
@@ -33,7 +33,7 @@ import { handleOAuth, subjectFromAccessToken } from "./oauth_routes.ts";
 import { issuerFrom, wwwAuthenticate } from "./auth.ts";
 
 const SPLING_BEARER = Deno.env.get("SPLING_BEARER") ?? "";
-const SERVER_VERSION = "0.6.0";
+const SERVER_VERSION = "0.7.0";
 
 // ---------------------------------------------------------------------------
 // Tool surface — the nine tools, final.
@@ -42,7 +42,7 @@ const SERVER_VERSION = "0.6.0";
 // ---------------------------------------------------------------------------
 const TOOLS = [
   {
-    name: "get_menu",
+    name: "get_catalog",
     description:
       "Get what a business currently offers at a location — menu items, services, rooms, appointments " +
       "or seating — with exact prices in cents and the valid options for each. Always call this before " +
@@ -51,15 +51,16 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        location_id: { type: "string", description: "Square location ID. Omit for the default location." },
+        location_id: { type: "string", description: "The business's location ID. Omit for the default location." },
       },
     },
   },
   {
     name: "compose_order",
     description:
-      "Validate a proposed order against the live menu and price it. Accepts items in ANY language — " +
-      "resolve what the user meant into candidate names, and this tool will match them to exact catalog " +
+      "Validate a proposed transaction against the live catalogue and price it — an order, a booking, an " +
+      "appointment or a request, whichever this business deals in. Accepts items in ANY language — " +
+      "resolve what the user meant into candidate names, and this tool will match them to exact catalogue " +
       "entries or reject them with a reason. It never guesses: ambiguity is returned as a question. " +
       "Dietary constraints on the profile are enforced here, before the order exists. Returns a draft " +
       "order_id you pass to place_order. This tool does not charge anything.",
@@ -75,7 +76,7 @@ const TOOLS = [
             type: "object",
             required: ["name_or_id"],
             properties: {
-              name_or_id: { type: "string", description: "Item name or Square catalog ID." },
+              name_or_id: { type: "string", description: "Item name in any language, or an exact ID from get_catalog." },
               qty: { type: "integer", minimum: 1, maximum: 50 },
               variation: { type: "string", description: "Size or variation name, e.g. 'Large'." },
               modifiers: { type: "array", items: { type: "string" } },
@@ -110,7 +111,9 @@ const TOOLS = [
   },
   {
     name: "get_order_status",
-    description: "Current status, pickup code and checkout link for one order. Reads live state from Square.",
+    description:
+      "Current status, reference code and checkout link for one transaction. Reads live state from the " +
+      "business rather than from anything Spling cached.",
     inputSchema: { type: "object", required: ["order_id"], properties: { order_id: { type: "string" } } },
   },
   {
@@ -232,7 +235,7 @@ async function callTool(name: string, args: Record<string, unknown>, req: Reques
 
   switch (name) {
     // -----------------------------------------------------------------------
-    case "get_menu": {
+    case "get_catalog": {
       const locationId = await resolveLocation(args);
       const menu = await catalogueFor(locationId);
       return {
@@ -658,7 +661,7 @@ Deno.serve(async (req: Request) => {
           serverInfo: { name: "spling", version: SERVER_VERSION },
           instructions:
             "Spling places food orders as validated structured data, so the user never has to speak at the " +
-            "point of sale. Call get_profile first to pick up their language and allergens. Call get_menu " +
+            "point of sale. Call get_profile first to pick up their language and allergens. Call get_catalog " +
             "before composing. compose_order resolves candidate items against the live catalog and rejects " +
             "anything it cannot match exactly — when it rejects, ask the user, never substitute. " +
             "If get_profile returns first_run, follow its setup instructions conversationally before " +
@@ -704,14 +707,17 @@ Deno.serve(async (req: Request) => {
 });
 
 // ---------------------------------------------------------------------------
-// AUTH NOTE — read before opening the ChatGPT path.
+// AUTH NOTE.
 //
-// The shared bearer above authenticates the CALLER, not a person: every request
-// resolves to one subject. That is correct for a single-tenant sandbox and
-// wrong for anything else, because profiles are per-person by definition.
+// subjectFrom() tries OAuth first and falls back to SPLING_BEARER. The bearer
+// authenticates the CALLER, not a person: every request carrying it resolves to
+// the same subject, so two people sharing one would share one profile —
+// including one person's allergens. Keep it for local development. Do not set
+// it in an environment real people can reach.
 //
-// Before real users: OAuth 2.1 + Dynamic Client Registration (a hard ChatGPT
-// requirement, not a preference), with subjectFrom() returning the verified
-// `sub` claim. Every store.ts call is already keyed by that subject, so this is
-// a swap of one function — deliberately, so the migration is not a rewrite.
+// The OAuth path resolves a person: identity.ts delegates sign-in to Google,
+// Apple or an email link, and the subject is their Supabase user id, stable
+// across devices and across re-authorising. Every store.ts call is keyed by
+// that subject, which is why adding identity was one function and not a
+// rewrite.
 // ---------------------------------------------------------------------------
