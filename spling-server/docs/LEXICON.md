@@ -1,7 +1,8 @@
 # The personal lexicon
 
-**Status: design. Not built.** This document is the argument and the shape; the code
-does not exist yet.
+**Status: built.** `lexicon.ts` (pure, 18 tests), migration 006, and wired into
+`compose_order` and the profile tools. Unproven against a real recogniser — no one has
+been misheard by it yet.
 
 ---
 
@@ -171,15 +172,22 @@ Non-negotiable rules:
 - It does not improve the recogniser. It compensates for it, downstream.
 - Twenty words is a starting lexicon, not a finished one. The real one accumulates.
 
-## What building it means
+## What was built
 
-- migration: `lexicon_entries (profile_id, heard, meant, source, client_id, hits,
-  created_at)`, RLS as everywhere else
-- `lexicon.ts`: pure resolution pass, no I/O, tested like `compose.ts`
-- one resolution hook in `compose.ts`, in front of the existing matcher
-- one tool for the calibration script and one for recording a pair — or extend
-  `update_profile` and `submit_correction`, which already carry the right shape
-- tests, including the ones that prove a lexicon entry cannot bypass a refusal or an
-  anaphylaxis block
+- `006_lexicon.sql` — `lexicon_entries` and `lexicon_calibration`, RLS as everywhere else,
+  with the "teaches nothing" rules enforced as table constraints so an application bug
+  cannot write a pair that fires on everything
+- `lexicon.ts` — pure, no I/O. `composeWithLexicon` composes the request as it arrived,
+  rewrites **only** the lines that failed, and keeps the second result **only if it is
+  strictly better**. That is what stops it becoming a bypass.
+- wired into `compose_order`; the calibration rides on `get_profile` and `update_profile`
+  rather than adding tools, so the surface stays at nine
+- `lexicon_test.ts` — 18 tests, including that negation is unlearnable in either
+  direction, that ambiguity is still a question, that a working order is never rewritten,
+  and that an anaphylaxis block stands regardless
+
+Still open: nothing decays. An entry learned once is kept forever, and a recogniser that
+improves will leave stale pairs behind. Hits are recorded but not yet used to retire
+anything.
 
 © 2026 R-evolv Inc.

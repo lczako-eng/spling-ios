@@ -207,7 +207,7 @@ test("the app and the connector agree on what can go wrong", async () => {
 
 test("no secret is hard-coded anywhere in the function", async () => {
   const fs = await import("node:fs/promises");
-  for (const f of ["index.ts", "square.ts", "store.ts", "compose.ts", "pam.ts", "ledger.ts", "catalogue.ts", "directory.ts", "auth.ts", "oauth_routes.ts", "oauth_store.ts", "identity.ts"]) {
+  for (const f of ["index.ts", "square.ts", "store.ts", "compose.ts", "pam.ts", "ledger.ts", "catalogue.ts", "directory.ts", "auth.ts", "oauth_routes.ts", "oauth_store.ts", "identity.ts", "lexicon.ts"]) {
     const src = await fs.readFile(new URL(`./${f}`, import.meta.url), "utf8");
     assert(!/EAAA[A-Za-z0-9_-]{10,}/.test(src), `${f} contains what looks like a Square token`);
     assert(!/eyJ[A-Za-z0-9_-]{20,}\./.test(src), `${f} contains what looks like a JWT`);

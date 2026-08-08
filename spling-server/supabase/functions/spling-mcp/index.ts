@@ -17,13 +17,17 @@
 // ============================================================================
 
 import { compose, pickupCode, renderLines, type RequestedItem } from "./compose.ts";
+import {
+  CALIBRATION, CALIBRATION_INSTRUCTIONS, composeWithLexicon, mergeEntries,
+  pairsFromCalibration, type CalibrationResponse, type LexiconEntry,
+} from "./lexicon.ts";
 import { defaultLocationId, getOrder, mapSquareState, SquareError } from "./square.ts";
 import "./square.ts";   // registers the POS rail
 import {
   addCorrection, addDietary, createDraftOrder, ensureMerchant, ensureProfile,
   findMerchant, getCommunicationProfile, getDietary, getOrderRow, listHistory, logEvent,
   merchantAccuracy, patchOrder, removeDietary, updateProfile,
-  upsertCommunicationProfile,
+  upsertCommunicationProfile, getLexicon, putLexicon, getCalibration, upsertCalibration,
 } from "./store.ts";
 import { toPam } from "./pam.ts";
 import { shapeCorrection, InvalidCorrection } from "./ledger.ts";
@@ -152,6 +156,25 @@ const TOOLS = [
           },
         },
         remove_dietary: { type: "array", items: { type: "string" } },
+        calibration_responses: {
+          type: "array",
+          description:
+            "Answers to a voice calibration set from get_profile. For each word asked, send what you " +
+            "transcribed. Omit 'heard' when the person skipped it. Never tell the user what was misheard.",
+          items: {
+            type: "object",
+            required: ["word"],
+            properties: {
+              word: { type: "string", description: "The word that was asked for." },
+              heard: { type: "string", description: "What you transcribed. Omit if skipped." },
+            },
+          },
+        },
+        calibration_sets_done: {
+          type: "array",
+          items: { type: "string" },
+          description: "Keys of calibration sets completed in this pass, so they are not asked again.",
+        },
       },
     },
   },
@@ -267,12 +290,17 @@ async function callTool(name: string, args: Record<string, unknown>, req: Reques
       const dietary = await getDietary(profile.id);
       const menu = await catalogueFor(locationId);
 
-      const result = compose({
+      // The lexicon runs only where the person's own words failed to resolve,
+      // and only keeps a rewrite that is strictly better — so it can never
+      // change an order that already worked, and never resolves an ambiguity.
+      // See lexicon.ts and docs/LEXICON.md.
+      const lexicon = (await getLexicon(profile.id).catch(() => [])) as LexiconEntry[];
+      const result = composeWithLexicon({
         menu,
         requested,
         dietary,
         overrides: (args.overrides ?? []) as string[],
-      });
+      }, lexicon);
 
       if (!result.ok) {
         // Nothing is persisted for a failed composition — there is no order.
@@ -452,6 +480,16 @@ async function callTool(name: string, args: Record<string, unknown>, req: Reques
         };
       }
 
+      // The calibration is offered, never imposed. It is only worth suggesting
+      // to someone for whom the spoken channel is actually difficult, and even
+      // then only once — see lexicon.ts CALIBRATION_INSTRUCTIONS, which travel
+      // with the words because they matter more than the words do.
+      const cal = await getCalibration(profile.id).catch(() => null);
+      const done = new Set(cal?.sets_done ?? []);
+      const remaining = CALIBRATION.filter((set) => !done.has(set.key));
+      const speechAffected = ["speech_difference", "nonverbal", "aac_user"]
+        .includes(comm?.communication_mode ?? "none");
+
       return {
         ok: true,
         first_run: false,
@@ -461,9 +499,32 @@ async function callTool(name: string, args: Record<string, unknown>, req: Reques
         communication_mode: comm?.communication_mode ?? "none",
         caretaker_staging_enabled: comm?.caretaker_staging_enabled ?? false,
         dietary,
+        // Set when this person's assistant loses negation words. Never fixed by
+        // substitution: a dropped "no" is not a wrong order, it is the thing
+        // they cannot eat, so the answer is to confirm out loud instead.
+        confirm_dietary_aloud: (cal?.negation_unreliable ?? []).length > 0,
+        ...(speechAffected && remaining.length
+          ? {
+              calibration: {
+                remaining_sets: remaining,
+                instructions: CALIBRATION_INSTRUCTIONS,
+                offer:
+                  "This person has told us the spoken channel is difficult. You may offer — once, and " +
+                  "only if the moment is right — to spend two minutes teaching Spling how their voice " +
+                  "comes through to you, so it stops mishearing the same words. If they decline or " +
+                  "ignore it, drop it permanently. Read one set at a time, ask them to say each word, " +
+                  "and send back what you transcribed via update_profile.calibration_responses. Follow " +
+                  "every instruction above exactly.",
+              },
+            }
+          : {}),
         note:
           "Apply these without asking the user to restate them. Anaphylaxis-severity entries are enforced " +
-          "by compose_order and cannot be overridden. Never ask again for something already recorded here.",
+          "by compose_order and cannot be overridden. Never ask again for something already recorded here." +
+          ((cal?.negation_unreliable ?? []).length
+            ? " This person's negation words do not transcribe reliably: confirm anything they ask to be " +
+              "left out, every time, in writing."
+            : ""),
       };
     }
 
@@ -485,12 +546,45 @@ async function callTool(name: string, args: Record<string, unknown>, req: Reques
       for (const d of (args.add_dietary ?? []) as any[]) await addDietary(profile.id, d);
       for (const v of (args.remove_dietary ?? []) as string[]) await removeDietary(profile.id, v);
 
+      // Calibration answers. Only mismatches become pairs — there is nothing to
+      // learn from being understood — and negation never becomes a pair at all,
+      // it becomes a standing instruction to confirm dietary out loud.
+      let learned = 0;
+      const responses = (args.calibration_responses ?? []) as CalibrationResponse[];
+      if (Array.isArray(responses) && responses.length) {
+        const { entries, negation_unreliable } = pairsFromCalibration(responses);
+        if (entries.length) {
+          const existing = (await getLexicon(profile.id).catch(() => [])) as LexiconEntry[];
+          const merged = mergeEntries(existing, entries);
+          await putLexicon(profile.id, merged);
+          learned = entries.length;
+        }
+        const prior = await getCalibration(profile.id).catch(() => null);
+        const sets = new Set([...(prior?.sets_done ?? []), ...((args.calibration_sets_done ?? []) as string[])]);
+        await upsertCalibration(profile.id, {
+          sets_done: [...sets],
+          negation_unreliable: [...new Set([...(prior?.negation_unreliable ?? []), ...negation_unreliable])],
+        });
+      }
+
       const [comm, dietary] = await Promise.all([getCommunicationProfile(profile.id), getDietary(profile.id)]);
       return {
         ok: true,
         updated: [...Object.keys(patch), ...Object.keys(commPatch)],
         dietary,
         communication_mode: comm?.communication_mode ?? "none",
+        ...(responses.length
+          ? {
+              calibration_saved: true,
+              // Deliberately a count and nothing else. Never report which words
+              // were misheard, and never say it back to the person: storing it
+              // is necessary, showing it is a mirror they did not ask for.
+              pairs_learned: learned,
+              say_to_user:
+                "Tell them it is saved and that it will get their words right from now on. Do not read " +
+                "back which words were misheard, do not give a score, and do not offer to redo it.",
+            }
+          : {}),
       };
     }
 
