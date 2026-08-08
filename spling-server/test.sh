@@ -17,7 +17,7 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 
 fail=0
-for suite in compose_test.ts compose_domains_test.ts ledger_test.ts auth_test.ts protocol_test.ts; do
+for suite in compose_test.ts compose_domains_test.ts ledger_test.ts auth_test.ts identity_test.ts lexicon_test.ts protocol_test.ts; do
   echo "── $suite"
   node --experimental-strip-types "$suite" || fail=1
 done

@@ -809,6 +809,7 @@ struct WriteReviewView: View {
     @EnvironmentObject var accessibility: AccessibilityViewModel
     @EnvironmentObject var session:       UserSessionViewModel
     @Environment(\.dismiss) var dismiss
+    @State private var showingCorrection = false
 
     var body: some View {
         NavigationStack {
@@ -824,6 +825,32 @@ struct WriteReviewView: View {
                             .multilineTextAlignment(.center)
                     }
                     .padding(.top)
+
+                    // A review is for other customers. A correction is for the
+                    // ledger, and it needs different answers — so it gets its
+                    // own screen rather than an extra field most people skip.
+                    Button {
+                        showingCorrection = true
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "exclamationmark.bubble.fill")
+                                .foregroundStyle(.orange)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Was the order itself wrong?")
+                                    .font(.system(size: accessibility.dynamicFontSize - 1, weight: .semibold))
+                                Text("Tell us exactly what arrived. That is what gets fixed.")
+                                    .font(.system(size: accessibility.dynamicFontSize - 4))
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.leading)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                        }
+                        .padding()
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Opens a form to report exactly what was wrong with this order")
 
                     // Star rating
                     VStack(spacing: 8) {
@@ -946,6 +973,193 @@ struct WriteReviewView: View {
                 .padding()
             }
             .navigationTitle("Write a Review")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+            .sheet(isPresented: $showingCorrection) {
+                ReportProblemView(order: order)
+            }
+        }
+    }
+}
+
+// MARK: - Report a Problem — the accuracy ledger's only input
+//
+// Everything on this screen exists to make the answer attributable. The item is
+// tapped from the order rather than typed, so the same latte is not spelled
+// three ways. The kind is a fixed list, matching the connector's
+// `submit_correction`, so both rails write one shape. And "what actually
+// arrived" is required, because a correction without it records that something
+// was wrong while recording nothing that can be fixed.
+
+struct ReportProblemView: View {
+    let order: Order
+    @StateObject private var vm = CorrectionViewModel()
+    @EnvironmentObject var accessibility: AccessibilityViewModel
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    VStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.bubble.fill")
+                            .font(.system(size: 44)).foregroundStyle(.orange)
+                        Text("What went wrong?")
+                            .font(.system(size: accessibility.dynamicFontSize + 4, weight: .bold))
+                        Text("This goes to \(order.vendorName)'s accuracy record, not to a public review.")
+                            .font(.system(size: accessibility.dynamicFontSize - 3))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top)
+
+                    // What kind of failure
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("What happened")
+                            .font(.system(size: accessibility.dynamicFontSize - 1, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        ForEach(CorrectionKind.allCases) { kind in
+                            Button {
+                                vm.kind = kind
+                                HapticManager.shared.selection()
+                            } label: {
+                                HStack {
+                                    Image(systemName: vm.kind == kind ? "largecircle.fill.circle" : "circle")
+                                        .foregroundStyle(vm.kind == kind ? .purple : .secondary)
+                                    Text(kind.label)
+                                        .font(.system(size: accessibility.dynamicFontSize))
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                }
+                                .padding(.vertical, 10)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(vm.kind == kind ? .isSelected : [])
+                        }
+                    }
+                    .padding()
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+
+                    // Which line it was about — tapped, never typed
+                    if vm.kind != .other {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Which item")
+                                .font(.system(size: accessibility.dynamicFontSize - 1, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                            ForEach(vm.itemChoices(for: order), id: \.self) { name in
+                                Button {
+                                    vm.itemName = name
+                                    HapticManager.shared.selection()
+                                } label: {
+                                    HStack {
+                                        Image(systemName: vm.itemName == name ? "checkmark.circle.fill" : "circle")
+                                            .foregroundStyle(vm.itemName == name ? .purple : .secondary)
+                                        Text(name)
+                                            .font(.system(size: accessibility.dynamicFontSize))
+                                            .foregroundStyle(.primary)
+                                            .multilineTextAlignment(.leading)
+                                        Spacer()
+                                    }
+                                    .padding(.vertical, 10)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityAddTraits(vm.itemName == name ? .isSelected : [])
+                            }
+                        }
+                        .padding()
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                    }
+
+                    // What actually arrived — the field this whole screen exists for
+                    if vm.kind.requiresReceived {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(vm.kind.receivedPrompt)
+                                .font(.system(size: accessibility.dynamicFontSize - 1, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                            TextField("In your own words", text: $vm.received, axis: .vertical)
+                                .textFieldStyle(.roundedBorder)
+                                .lineLimit(2...5)
+                                .font(.system(size: accessibility.dynamicFontSize))
+                                .accessibilityLabel(vm.kind.receivedPrompt)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(vm.kind == .other ? "Tell us what happened" : "Anything else (optional)")
+                            .font(.system(size: accessibility.dynamicFontSize - 1, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        TextField("Optional", text: $vm.note, axis: .vertical)
+                            .textFieldStyle(.roundedBorder)
+                            .lineLimit(2...5)
+                            .font(.system(size: accessibility.dynamicFontSize))
+                            .accessibilityLabel("Additional detail")
+                    }
+
+                    // Submit
+                    Group {
+                        switch vm.state {
+                        case .idle, .failed:
+                            VStack(spacing: 8) {
+                                Button {
+                                    Task { await vm.submit(for: order) }
+                                } label: {
+                                    Text("Send correction")
+                                        .font(.system(size: accessibility.dynamicFontSize, weight: .semibold))
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(.purple)
+                                .controlSize(.large)
+                                .disabled(!vm.canSubmit(for: order))
+
+                                // A disabled button with no explanation is a dead
+                                // end. Say which answer is still missing.
+                                if let blocker = vm.blocker(for: order) {
+                                    Text(blocker)
+                                        .font(.system(size: accessibility.dynamicFontSize - 4))
+                                        .foregroundStyle(.secondary)
+                                        .multilineTextAlignment(.center)
+                                        .frame(maxWidth: .infinity)
+                                }
+                            }
+
+                        case .submitting:
+                            ProgressView("Sending…").frame(maxWidth: .infinity)
+
+                        case .submitted:
+                            VStack(spacing: 10) {
+                                Label("Recorded", systemImage: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                    .font(.system(size: accessibility.dynamicFontSize, weight: .semibold))
+                                Text("This counts towards \(order.vendorName)'s accuracy record.")
+                                    .font(.system(size: accessibility.dynamicFontSize - 3))
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .onAppear {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { dismiss() }
+                            }
+                        }
+                    }
+
+                    if case .failed(let msg) = vm.state {
+                        Text(msg)
+                            .foregroundStyle(.red).font(.caption)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("Report a problem")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

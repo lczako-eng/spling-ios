@@ -15,6 +15,9 @@ enum AppConfig {
         static let ratingsEndpoint   = "/ratings"
         static let paymentEndpoint   = "/payment"
         static let reviewsEndpoint   = "/reviews"
+        /// Accuracy corrections — ordered vs received. Not the same thing as a
+        /// review, and deliberately not the same endpoint.
+        static let correctionsEndpoint = "/corrections"
         static let vendorEndpoint    = "/vendor"
         static let terminalEndpoint  = "/terminal"
     }

@@ -208,3 +208,62 @@ export async function merchantAccuracy(merchantId?: string) {
   const q = merchantId ? `merchant_accuracy?merchant_id=eq.${merchantId}` : "merchant_accuracy";
   return pg(`${q}&select=*`.replace("?&", "?"));
 }
+
+// ---------------------------------------------------------------------------
+// lexicon (migration 006)
+//
+// Health-adjacent, like communication_profiles. These rows are never logged and
+// never leave with an order. logEvent() below already strips profile-shaped
+// fields defensively; nothing here is ever passed to it in the first place.
+// ---------------------------------------------------------------------------
+
+export interface LexiconRow {
+  heard: string;
+  meant: string;
+  source: "calibration" | "correction";
+  hits: number;
+}
+
+export async function getLexicon(profileId: string): Promise<LexiconRow[]> {
+  const rows = await pg(
+    `lexicon_entries?profile_id=eq.${profileId}&select=heard,meant,source,hits&order=hits.desc&limit=500`,
+  );
+  return rows ?? [];
+}
+
+/** Upsert on (profile_id, heard) — one meaning per heard form, per person. */
+export async function putLexicon(profileId: string, entries: LexiconRow[]): Promise<void> {
+  if (!entries.length) return;
+  await pg("lexicon_entries?on_conflict=profile_id,heard", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify(entries.map((e) => ({
+      profile_id: profileId,
+      heard: e.heard,
+      meant: e.meant,
+      source: e.source,
+      hits: e.hits,
+      updated_at: new Date().toISOString(),
+    }))),
+  });
+}
+
+export interface CalibrationRow {
+  sets_done: string[];
+  negation_unreliable: string[];
+}
+
+export async function getCalibration(profileId: string): Promise<CalibrationRow | null> {
+  const rows = await pg(
+    `lexicon_calibration?profile_id=eq.${profileId}&select=sets_done,negation_unreliable&limit=1`,
+  );
+  return rows?.[0] ?? null;
+}
+
+export async function upsertCalibration(profileId: string, patch: Partial<CalibrationRow>): Promise<void> {
+  await pg("lexicon_calibration?on_conflict=profile_id", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify({ profile_id: profileId, ...patch, updated_at: new Date().toISOString() }),
+  });
+}

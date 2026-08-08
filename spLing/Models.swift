@@ -587,3 +587,113 @@ struct Receipt: Identifiable, Codable {
         self.pointsEarned = pointsEarned
     }
 }
+
+// MARK: - Corrections (the accuracy ledger)
+//
+// A review is public and social: stars, a title, a paragraph. A correction is
+// neither. It is a private, structured record of what was ordered against what
+// actually arrived, and it is the only thing that feeds the accuracy ledger.
+//
+// Conflating the two is why the ledger learned nothing. A one-star review with
+// "wrong again" in the body records THAT something was wrong. It cannot record
+// WHAT, so it cannot be attributed to a merchant, a location, an item or a
+// modifier — which is the entire value of the ledger.
+//
+// These field names mirror the connector's `submit_correction` tool exactly, so
+// the app rail and the assistant rail write the same shape into one ledger. If
+// you change a raw value here, change it there in the same commit; there is a
+// test that fails when they drift.
+
+enum CorrectionKind: String, Codable, CaseIterable, Identifiable {
+    case missingItem   = "missing_item"
+    case wrongItem     = "wrong_item"
+    case wrongModifier = "wrong_modifier"
+    case wrongQuantity = "wrong_quantity"
+    case quality       = "quality"
+    case other         = "other"
+
+    var id: String { rawValue }
+
+    /// Plain language. Whoever is reading this just had their order got wrong,
+    /// possibly in a car park, possibly one-handed.
+    var label: String {
+        switch self {
+        case .missingItem:   return "Something was missing"
+        case .wrongItem:     return "I got the wrong thing"
+        case .wrongModifier: return "Wrong milk, sauce or option"
+        case .wrongQuantity: return "Wrong number of them"
+        case .quality:       return "It arrived, but not right"
+        case .other:         return "Something else"
+        }
+    }
+
+    /// What the ledger needs from this kind, phrased as a question.
+    var receivedPrompt: String {
+        switch self {
+        case .missingItem:   return "Which one never arrived?"
+        case .wrongItem:     return "What did you get instead?"
+        case .wrongModifier: return "What did they put in it?"
+        case .wrongQuantity: return "How many did you actually get?"
+        case .quality:       return "What was wrong with it?"
+        case .other:         return "What happened?"
+        }
+    }
+
+    /// Whether this kind is meaningless without a description of what arrived.
+    /// A missing item needs no "instead" — everything else does.
+    var requiresReceived: Bool { self != .missingItem }
+}
+
+struct Correction: Identifiable, Codable {
+    let id:        UUID
+    let orderID:   UUID
+    let vendorID:  String
+    let kind:      CorrectionKind
+    /// The line this is about, as it appeared on the order. Optional only for
+    /// `.other`, where the complaint may not belong to one line.
+    let itemName:  String?
+    /// What actually arrived, in the user's own words. This is the field whose
+    /// absence made the ledger useless.
+    let received:  String?
+    let note:      String?
+    let createdAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case orderID   = "order_id"
+        case vendorID  = "vendor_id"
+        case kind
+        case itemName  = "item_name"
+        case received
+        case note
+        case createdAt = "created_at"
+    }
+
+    init(
+        orderID: UUID,
+        vendorID: String,
+        kind: CorrectionKind,
+        itemName: String? = nil,
+        received: String? = nil,
+        note: String? = nil
+    ) {
+        self.id        = UUID()
+        self.orderID   = orderID
+        self.vendorID  = vendorID
+        self.kind      = kind
+        self.itemName  = itemName?.trimmedOrNil
+        self.received  = received?.trimmedOrNil
+        self.note      = note?.trimmedOrNil
+        self.createdAt = Date()
+    }
+}
+
+extension String {
+    /// Whitespace-only input is absence wearing a costume. The ledger should see
+    /// it as absence, and refuse it, rather than store a blank that reads as an
+    /// answer.
+    var trimmedOrNil: String? {
+        let t = trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
+    }
+}

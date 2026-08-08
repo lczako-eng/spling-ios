@@ -173,14 +173,41 @@ test("index.ts declares exactly the nine specified tools", async () => {
   const src = await (await import("node:fs/promises")).readFile(new URL("./index.ts", import.meta.url), "utf8");
   const declared = [...src.matchAll(/^\s{4}name: "([a-z_]+)",$/gm)].map((m) => m[1]);
   eq(declared.sort(), [
-    "compose_order", "export_profile", "get_history", "get_menu", "get_order_status",
+    "compose_order", "export_profile", "get_catalog", "get_history", "get_order_status",
     "get_profile", "place_order", "submit_correction", "update_profile",
   ], "tool surface");
 });
 
+// ---------------------------------------------------------------------------
+// cross-rail contract
+//
+// The iOS app and this connector both write corrections into one accuracy
+// ledger. A value that exists on only one side produces rows the other cannot
+// read — and an unreadable correction is an unattributable one, which is the
+// failure the ledger exists to prevent. Swift tests need a Mac; this one runs
+// everywhere, so this is the guard that actually fires.
+// ---------------------------------------------------------------------------
+test("the app and the connector agree on what can go wrong", async () => {
+  const fs = await import("node:fs/promises");
+  const here = new URL("./index.ts", import.meta.url);
+  const swift = new URL("../../../../spLing/Models.swift", here);
+
+  const server = [...(await fs.readFile(here, "utf8"))
+    .matchAll(/enum: \["missing_item"[^\]]*\]/g)]
+    .map((m) => [...m[0].matchAll(/"([a-z_]+)"/g)].map((x) => x[1]))[0];
+  assert(server?.length, "could not find the submit_correction kind enum in index.ts");
+
+  const src = await fs.readFile(swift, "utf8");
+  const block = src.match(/enum CorrectionKind[\s\S]*?\n\}/)?.[0] ?? "";
+  const app = [...block.matchAll(/case\s+\w+\s*=\s*"([a-z_]+)"/g)].map((m) => m[1]);
+  assert(app.length, "could not find CorrectionKind in Models.swift");
+
+  eq(app.slice().sort(), server.slice().sort(), "correction kinds have drifted between the two rails");
+});
+
 test("no secret is hard-coded anywhere in the function", async () => {
   const fs = await import("node:fs/promises");
-  for (const f of ["index.ts", "square.ts", "store.ts", "compose.ts", "pam.ts", "ledger.ts", "catalogue.ts", "directory.ts", "auth.ts", "oauth_routes.ts", "oauth_store.ts"]) {
+  for (const f of ["index.ts", "square.ts", "store.ts", "compose.ts", "pam.ts", "ledger.ts", "catalogue.ts", "directory.ts", "auth.ts", "oauth_routes.ts", "oauth_store.ts", "identity.ts", "lexicon.ts"]) {
     const src = await fs.readFile(new URL(`./${f}`, import.meta.url), "utf8");
     assert(!/EAAA[A-Za-z0-9_-]{10,}/.test(src), `${f} contains what looks like a Square token`);
     assert(!/eyJ[A-Za-z0-9_-]{20,}\./.test(src), `${f} contains what looks like a JWT`);

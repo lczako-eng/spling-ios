@@ -3,13 +3,13 @@
 //
 // Deploy:  supabase functions deploy spling-mcp --no-verify-jwt
 // Secrets: supabase secrets set SQUARE_ACCESS_TOKEN=... SQUARE_ENV=sandbox \
-//            SPLING_BEARER=... SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=...
+//            SUPABASE_URL=... SUPABASE_ANON_KEY=... SUPABASE_SERVICE_ROLE_KEY=...
 //
 // Transport: MCP Streamable HTTP (POST JSON-RPC 2.0). Remote HTTPS only —
 // ChatGPT does not accept stdio servers, so a hosted endpoint is mandatory.
 //
-// Auth: shared bearer today. OAuth 2.1 + Dynamic Client Registration is
-// required before the ChatGPT path opens; see AUTH NOTE at the bottom.
+// Auth: OAuth 2.1 + Dynamic Client Registration, with sign-in delegated to
+// Google, Apple or an email link. See AUTH NOTE at the bottom.
 //
 // The rule this whole file exists to enforce: the model proposes, the
 // validator disposes. Nothing reaches a merchant that compose.ts has not
@@ -17,13 +17,17 @@
 // ============================================================================
 
 import { compose, pickupCode, renderLines, type RequestedItem } from "./compose.ts";
+import {
+  CALIBRATION, CALIBRATION_INSTRUCTIONS, composeWithLexicon, mergeEntries,
+  pairsFromCalibration, type CalibrationResponse, type LexiconEntry,
+} from "./lexicon.ts";
 import { defaultLocationId, getOrder, mapSquareState, SquareError } from "./square.ts";
 import "./square.ts";   // registers the POS rail
 import {
   addCorrection, addDietary, createDraftOrder, ensureMerchant, ensureProfile,
   findMerchant, getCommunicationProfile, getDietary, getOrderRow, listHistory, logEvent,
   merchantAccuracy, patchOrder, removeDietary, updateProfile,
-  upsertCommunicationProfile,
+  upsertCommunicationProfile, getLexicon, putLexicon, getCalibration, upsertCalibration,
 } from "./store.ts";
 import { toPam } from "./pam.ts";
 import { shapeCorrection, InvalidCorrection } from "./ledger.ts";
@@ -33,7 +37,7 @@ import { handleOAuth, subjectFromAccessToken } from "./oauth_routes.ts";
 import { issuerFrom, wwwAuthenticate } from "./auth.ts";
 
 const SPLING_BEARER = Deno.env.get("SPLING_BEARER") ?? "";
-const SERVER_VERSION = "0.6.0";
+const SERVER_VERSION = "0.7.0";
 
 // ---------------------------------------------------------------------------
 // Tool surface — the nine tools, final.
@@ -42,7 +46,7 @@ const SERVER_VERSION = "0.6.0";
 // ---------------------------------------------------------------------------
 const TOOLS = [
   {
-    name: "get_menu",
+    name: "get_catalog",
     description:
       "Get what a business currently offers at a location — menu items, services, rooms, appointments " +
       "or seating — with exact prices in cents and the valid options for each. Always call this before " +
@@ -51,15 +55,16 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        location_id: { type: "string", description: "Square location ID. Omit for the default location." },
+        location_id: { type: "string", description: "The business's location ID. Omit for the default location." },
       },
     },
   },
   {
     name: "compose_order",
     description:
-      "Validate a proposed order against the live menu and price it. Accepts items in ANY language — " +
-      "resolve what the user meant into candidate names, and this tool will match them to exact catalog " +
+      "Validate a proposed transaction against the live catalogue and price it — an order, a booking, an " +
+      "appointment or a request, whichever this business deals in. Accepts items in ANY language — " +
+      "resolve what the user meant into candidate names, and this tool will match them to exact catalogue " +
       "entries or reject them with a reason. It never guesses: ambiguity is returned as a question. " +
       "Dietary constraints on the profile are enforced here, before the order exists. Returns a draft " +
       "order_id you pass to place_order. This tool does not charge anything.",
@@ -75,7 +80,7 @@ const TOOLS = [
             type: "object",
             required: ["name_or_id"],
             properties: {
-              name_or_id: { type: "string", description: "Item name or Square catalog ID." },
+              name_or_id: { type: "string", description: "Item name in any language, or an exact ID from get_catalog." },
               qty: { type: "integer", minimum: 1, maximum: 50 },
               variation: { type: "string", description: "Size or variation name, e.g. 'Large'." },
               modifiers: { type: "array", items: { type: "string" } },
@@ -110,7 +115,9 @@ const TOOLS = [
   },
   {
     name: "get_order_status",
-    description: "Current status, pickup code and checkout link for one order. Reads live state from Square.",
+    description:
+      "Current status, reference code and checkout link for one transaction. Reads live state from the " +
+      "business rather than from anything Spling cached.",
     inputSchema: { type: "object", required: ["order_id"], properties: { order_id: { type: "string" } } },
   },
   {
@@ -149,6 +156,25 @@ const TOOLS = [
           },
         },
         remove_dietary: { type: "array", items: { type: "string" } },
+        calibration_responses: {
+          type: "array",
+          description:
+            "Answers to a voice calibration set from get_profile. For each word asked, send what you " +
+            "transcribed. Omit 'heard' when the person skipped it. Never tell the user what was misheard.",
+          items: {
+            type: "object",
+            required: ["word"],
+            properties: {
+              word: { type: "string", description: "The word that was asked for." },
+              heard: { type: "string", description: "What you transcribed. Omit if skipped." },
+            },
+          },
+        },
+        calibration_sets_done: {
+          type: "array",
+          items: { type: "string" },
+          description: "Keys of calibration sets completed in this pass, so they are not asked again.",
+        },
       },
     },
   },
@@ -232,7 +258,7 @@ async function callTool(name: string, args: Record<string, unknown>, req: Reques
 
   switch (name) {
     // -----------------------------------------------------------------------
-    case "get_menu": {
+    case "get_catalog": {
       const locationId = await resolveLocation(args);
       const menu = await catalogueFor(locationId);
       return {
@@ -264,12 +290,17 @@ async function callTool(name: string, args: Record<string, unknown>, req: Reques
       const dietary = await getDietary(profile.id);
       const menu = await catalogueFor(locationId);
 
-      const result = compose({
+      // The lexicon runs only where the person's own words failed to resolve,
+      // and only keeps a rewrite that is strictly better — so it can never
+      // change an order that already worked, and never resolves an ambiguity.
+      // See lexicon.ts and docs/LEXICON.md.
+      const lexicon = (await getLexicon(profile.id).catch(() => [])) as LexiconEntry[];
+      const result = composeWithLexicon({
         menu,
         requested,
         dietary,
         overrides: (args.overrides ?? []) as string[],
-      });
+      }, lexicon);
 
       if (!result.ok) {
         // Nothing is persisted for a failed composition — there is no order.
@@ -449,6 +480,16 @@ async function callTool(name: string, args: Record<string, unknown>, req: Reques
         };
       }
 
+      // The calibration is offered, never imposed. It is only worth suggesting
+      // to someone for whom the spoken channel is actually difficult, and even
+      // then only once — see lexicon.ts CALIBRATION_INSTRUCTIONS, which travel
+      // with the words because they matter more than the words do.
+      const cal = await getCalibration(profile.id).catch(() => null);
+      const done = new Set(cal?.sets_done ?? []);
+      const remaining = CALIBRATION.filter((set) => !done.has(set.key));
+      const speechAffected = ["speech_difference", "nonverbal", "aac_user"]
+        .includes(comm?.communication_mode ?? "none");
+
       return {
         ok: true,
         first_run: false,
@@ -458,9 +499,32 @@ async function callTool(name: string, args: Record<string, unknown>, req: Reques
         communication_mode: comm?.communication_mode ?? "none",
         caretaker_staging_enabled: comm?.caretaker_staging_enabled ?? false,
         dietary,
+        // Set when this person's assistant loses negation words. Never fixed by
+        // substitution: a dropped "no" is not a wrong order, it is the thing
+        // they cannot eat, so the answer is to confirm out loud instead.
+        confirm_dietary_aloud: (cal?.negation_unreliable ?? []).length > 0,
+        ...(speechAffected && remaining.length
+          ? {
+              calibration: {
+                remaining_sets: remaining,
+                instructions: CALIBRATION_INSTRUCTIONS,
+                offer:
+                  "This person has told us the spoken channel is difficult. You may offer — once, and " +
+                  "only if the moment is right — to spend two minutes teaching Spling how their voice " +
+                  "comes through to you, so it stops mishearing the same words. If they decline or " +
+                  "ignore it, drop it permanently. Read one set at a time, ask them to say each word, " +
+                  "and send back what you transcribed via update_profile.calibration_responses. Follow " +
+                  "every instruction above exactly.",
+              },
+            }
+          : {}),
         note:
           "Apply these without asking the user to restate them. Anaphylaxis-severity entries are enforced " +
-          "by compose_order and cannot be overridden. Never ask again for something already recorded here.",
+          "by compose_order and cannot be overridden. Never ask again for something already recorded here." +
+          ((cal?.negation_unreliable ?? []).length
+            ? " This person's negation words do not transcribe reliably: confirm anything they ask to be " +
+              "left out, every time, in writing."
+            : ""),
       };
     }
 
@@ -482,12 +546,45 @@ async function callTool(name: string, args: Record<string, unknown>, req: Reques
       for (const d of (args.add_dietary ?? []) as any[]) await addDietary(profile.id, d);
       for (const v of (args.remove_dietary ?? []) as string[]) await removeDietary(profile.id, v);
 
+      // Calibration answers. Only mismatches become pairs — there is nothing to
+      // learn from being understood — and negation never becomes a pair at all,
+      // it becomes a standing instruction to confirm dietary out loud.
+      let learned = 0;
+      const responses = (args.calibration_responses ?? []) as CalibrationResponse[];
+      if (Array.isArray(responses) && responses.length) {
+        const { entries, negation_unreliable } = pairsFromCalibration(responses);
+        if (entries.length) {
+          const existing = (await getLexicon(profile.id).catch(() => [])) as LexiconEntry[];
+          const merged = mergeEntries(existing, entries);
+          await putLexicon(profile.id, merged);
+          learned = entries.length;
+        }
+        const prior = await getCalibration(profile.id).catch(() => null);
+        const sets = new Set([...(prior?.sets_done ?? []), ...((args.calibration_sets_done ?? []) as string[])]);
+        await upsertCalibration(profile.id, {
+          sets_done: [...sets],
+          negation_unreliable: [...new Set([...(prior?.negation_unreliable ?? []), ...negation_unreliable])],
+        });
+      }
+
       const [comm, dietary] = await Promise.all([getCommunicationProfile(profile.id), getDietary(profile.id)]);
       return {
         ok: true,
         updated: [...Object.keys(patch), ...Object.keys(commPatch)],
         dietary,
         communication_mode: comm?.communication_mode ?? "none",
+        ...(responses.length
+          ? {
+              calibration_saved: true,
+              // Deliberately a count and nothing else. Never report which words
+              // were misheard, and never say it back to the person: storing it
+              // is necessary, showing it is a mirror they did not ask for.
+              pairs_learned: learned,
+              say_to_user:
+                "Tell them it is saved and that it will get their words right from now on. Do not read " +
+                "back which words were misheard, do not give a score, and do not offer to redo it.",
+            }
+          : {}),
       };
     }
 
@@ -656,13 +753,41 @@ Deno.serve(async (req: Request) => {
           protocolVersion: params?.protocolVersion ?? "2025-06-18",
           capabilities: { tools: { listChanged: false } },
           serverInfo: { name: "spling", version: SERVER_VERSION },
+          // The brief. This lands in the assistant's context on connect, which
+          // makes it the only place we can state the rules before the first
+          // mistake rather than after it. Everything here is a failure mode we
+          // would otherwise have to catch downstream, so it earns its tokens.
           instructions:
-            "Spling places food orders as validated structured data, so the user never has to speak at the " +
-            "point of sale. Call get_profile first to pick up their language and allergens. Call get_menu " +
-            "before composing. compose_order resolves candidate items against the live catalog and rejects " +
-            "anything it cannot match exactly — when it rejects, ask the user, never substitute. " +
-            "If get_profile returns first_run, follow its setup instructions conversationally before " +
-            "anything else: this product exists for people who should never have to fill in a form.",
+            "Spling lets a person transact with a business without having to speak, be heard, or be " +
+            "understood at a counter — in any language, with any voice, or with none at all. Ordering is " +
+            "the first application; the same tools compose a hotel booking, a pharmacy request or an " +
+            "appointment.\n\n" +
+            "ORDER OF OPERATIONS\n" +
+            "1. get_profile — always first. It carries their language, allergens and communication needs so " +
+            "they never restate them. If it returns first_run:true, follow its setup instructions " +
+            "conversationally before anything else. There is no settings screen and that is deliberate.\n" +
+            "2. get_catalog — always before composing. Use its transaction_noun (order / request / booking / " +
+            "appointment) when you speak to them.\n" +
+            "3. compose_order — send candidates in whatever words they used, in any language. It resolves " +
+            "them to exact catalogue entries or rejects them with a reason.\n" +
+            "4. place_order — only after compose_order returned ok.\n\n" +
+            "NOT NEGOTIABLE\n" +
+            "- When compose_order rejects, ask them. Never substitute, never assume, never round up to the " +
+            "nearest thing on the menu. A rejection is a question for the person, not a problem for you.\n" +
+            "- Never transact from a photo, a screenshot, or a menu you remember. If they photograph a board " +
+            "you may read it aloud to help them choose, but only get_catalog is real — prices and " +
+            "availability differ, and the order has to match the business's live system.\n" +
+            "- Anaphylaxis-severity constraints are hard blocks. Do not offer a workaround, and do not ask " +
+            "them to confirm past one.\n" +
+            "- If get_profile returns confirm_dietary_aloud:true, restate anything they asked to leave out, " +
+            "in writing, every single time. Their negation words do not transcribe reliably.\n\n" +
+            "HOW TO TALK TO THEM\n" +
+            "- Answer in the language they are writing to you in.\n" +
+            "- Put the confirmation in writing. Many people using this cannot hear a spoken reply; that is " +
+            "half of what Spling is for.\n" +
+            "- If the same word is misheard repeatedly, Spling learns it quietly and stops it recurring. " +
+            "Never read back what was misheard, never score them, and never ask for a third attempt at a " +
+            "word — a third request is the counter experience this product exists to abolish.",
         })), { headers });
 
       case "notifications/initialized":
@@ -704,14 +829,17 @@ Deno.serve(async (req: Request) => {
 });
 
 // ---------------------------------------------------------------------------
-// AUTH NOTE — read before opening the ChatGPT path.
+// AUTH NOTE.
 //
-// The shared bearer above authenticates the CALLER, not a person: every request
-// resolves to one subject. That is correct for a single-tenant sandbox and
-// wrong for anything else, because profiles are per-person by definition.
+// subjectFrom() tries OAuth first and falls back to SPLING_BEARER. The bearer
+// authenticates the CALLER, not a person: every request carrying it resolves to
+// the same subject, so two people sharing one would share one profile —
+// including one person's allergens. Keep it for local development. Do not set
+// it in an environment real people can reach.
 //
-// Before real users: OAuth 2.1 + Dynamic Client Registration (a hard ChatGPT
-// requirement, not a preference), with subjectFrom() returning the verified
-// `sub` claim. Every store.ts call is already keyed by that subject, so this is
-// a swap of one function — deliberately, so the migration is not a rewrite.
+// The OAuth path resolves a person: identity.ts delegates sign-in to Google,
+// Apple or an email link, and the subject is their Supabase user id, stable
+// across devices and across re-authorising. Every store.ts call is keyed by
+// that subject, which is why adding identity was one function and not a
+// rewrite.
 // ---------------------------------------------------------------------------
